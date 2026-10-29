@@ -8,11 +8,16 @@ import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth";
-import { Button, ErrorBox, Txt } from "@/src/components/ui";
+import { Button, ErrorBox, Ionicons, Txt } from "@/src/components/ui";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
-const HERO =
-  "https://images.unsplash.com/photo-1606059979642-8390434af3d5?crop=entropy&cs=srgb&fm=jpg&ixlib=rb-4.1.0&q=85&w=1200";
+const HERO = "https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=1200&q=80";
+
+const FEATURES = [
+  { icon: "briefcase", text: "Zawody dopasowane do Ciebie" },
+  { icon: "trending-up", text: "Ścieżka kariery krok po kroku" },
+  { icon: "school", text: "Kursy, studia i oferty pracy" },
+] as const;
 
 export default function AuthScreen() {
   const insets = useSafeAreaInsets();
@@ -53,20 +58,35 @@ export default function AuthScreen() {
       >
         <View style={styles.hero}>
           <Image source={{ uri: HERO }} style={{ flex: 1 }} contentFit="cover" transition={300} />
-          <LinearGradient colors={["transparent", colors.surface]} style={styles.scrim} />
+          <LinearGradient colors={["rgba(0,0,0,0.55)", "rgba(0,0,0,0.15)", colors.surface]} style={styles.scrim} />
           <View style={[styles.heroText, { paddingTop: insets.top + spacing.lg }]}>
             <Text style={styles.logo} testID="app-logo">
               reset<Text style={{ color: colors.brandPrimary }}>.</Text>
             </Text>
+            <Text style={styles.tagline} testID="app-tagline">
+              Zmiana zawodu i nowa ścieżka kariery
+            </Text>
           </View>
         </View>
         <Animated.View entering={FadeInDown.duration(500)} style={styles.body}>
-          <Txt variant="display">{mode === "login" ? "Witaj z powrotem" : "Zacznij od nowa"}</Txt>
+          <Txt variant="display">{mode === "login" ? "Witaj z powrotem" : "Znajdź zawód dla siebie"}</Txt>
           <Txt style={{ marginTop: spacing.sm }}>
             {mode === "login"
-              ? "Zaloguj się, aby wrócić do swoich zawodów i drogi kariery."
-              : "Odpowiedz na kilka pytań, a pokażemy Ci zawody, które do Ciebie pasują — i drogę, jak do nich dojść."}
+              ? "Zaloguj się, aby wrócić do swoich zawodów i ścieżki kariery."
+              : "Chcesz zmienić pracę lub branżę, a może dopiero wybierasz, co robić w życiu? Odpowiedz na kilka pytań — pokażemy Ci pasujące zawody i plan, jak w nich zacząć."}
           </Txt>
+          {mode === "register" ? (
+            <View style={{ gap: spacing.sm }} testID="auth-features">
+              {FEATURES.map((f) => (
+                <View key={f.text} style={styles.feature}>
+                  <View style={styles.featureIcon}>
+                    <Ionicons name={f.icon} size={18} color={colors.onBrandTertiary} />
+                  </View>
+                  <Text style={styles.featureText}>{f.text}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
 
           <View style={styles.segment}>
             {(["register", "login"] as const).map((m) => (
@@ -136,7 +156,11 @@ function Field({ label, ...props }: React.ComponentProps<typeof TextInput> & { l
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surface },
   hero: { height: 260 },
-  scrim: { position: "absolute", left: 0, right: 0, bottom: 0, height: 160 },
+  scrim: { position: "absolute", left: 0, right: 0, bottom: 0, top: 0 },
+  tagline: { fontFamily: fonts.semibold, fontSize: 15, color: "#FFFFFF", marginTop: 2 },
+  feature: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  featureIcon: { width: 32, height: 32, borderRadius: radius.sm, backgroundColor: c.brandTertiary, alignItems: "center", justifyContent: "center" },
+  featureText: { fontFamily: fonts.semibold, fontSize: 14, color: c.onSurface },
   heroText: { position: "absolute", left: spacing.xl, top: 0 },
   logo: { fontFamily: fonts.extrabold, fontSize: 34, color: "#FFFFFF", letterSpacing: -1 },
   body: { paddingHorizontal: spacing.xl, gap: spacing.lg, marginTop: -spacing.xl },

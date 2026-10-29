@@ -17,7 +17,7 @@ export type QuizStep = { title: string; subtitle: string; groups: Group[]; showI
 export const RESET_MODES: Record<string, { label: string; short: string }> = {
   search: { label: "Szukam swojej drogi", short: "SZUKAM SWOJEJ DROGI" },
   industry: { label: "Zmiana branży", short: "ZMIANA BRANŻY" },
-  life: { label: "Wielki Reset", short: "WIELKI RESET · NOWE ŻYCIE" },
+  life: { label: "Nowy Rozdział", short: "NOWY ROZDZIAŁ · ZMIANA ŻYCIA" },
 };
 
 const isLife = (a: Record<string, any>) => a.reset_mode === "life";
@@ -47,7 +47,7 @@ export const QUIZ_STEPS: QuizStep[] = [
           },
           {
             value: "life",
-            label: "Wielki Reset — zmieniam życie",
+            label: "Nowy Rozdział — zmieniam życie",
             desc: "Zaczynam od nowa: inne obowiązki, inny rytm dnia, coś, co naprawdę mnie kręci.",
             icon: "rocket",
           },
@@ -78,7 +78,7 @@ export const QUIZ_STEPS: QuizStep[] = [
   },
   {
     title: "Masz już coś na myśli?",
-    subtitle: "Wielki Reset zaczyna się od marzenia — nawet jeśli jest jeszcze mgliste.",
+    subtitle: "Każdy nowy rozdział zaczyna się od marzenia — nawet jeśli jest jeszcze mgliste.",
     showIf: isLife,
     groups: [
       {

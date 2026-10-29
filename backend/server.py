@@ -278,7 +278,7 @@ MODE_RULES = {
         "W polu 'why' wyjaśnij, które jego umiejętności przenoszą się do nowej branży."
     ),
     "life": (
-        "TRYB: WIELKI RESET — ZMIANA ŻYCIA. Użytkownik chce zacząć od nowa. NIE proponuj niczego w jego obecnej branży ani zawodów "
+        "TRYB: NOWY ROZDZIAŁ — ZMIANA ŻYCIA. Użytkownik chce zacząć od nowa. NIE proponuj niczego w jego obecnej branży ani zawodów "
         "o podobnym charakterze obowiązków (np. księgowa → NIE analityk finansowy, NIE kontroler, NIE kadry). Proponuj ZUPEŁNIE INNY rodzaj pracy i rytm dnia, "
         "dopasowany do pomysłu/marzenia (idea), kuszących kierunków (new_directions), pasji (loves), wartości (life_values) i tego, czego nie lubi. "
         "Jeśli użytkownik ma konkretny pomysł (idea) i jest on realny — niech będzie pierwszą propozycją w odpowiedniej kategorii. "

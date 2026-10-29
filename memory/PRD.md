@@ -29,6 +29,9 @@ Aplikacja na Sklep Play "Reset" do przebranżowienia / wyboru ścieżki zawodowe
 - Admin właścicielki: weronisia1987s@gmail.com (ADMIN_EMAILS) — staje się adminem przy rejestracji
 - Panel administratora /admin: statystyki, nadawanie darmowego Premium po e-mailu (także przed rejestracją), przełącznik Premium per użytkownik, wyszukiwarka
 
+## Iteration 5 (2026-06)
+- „Wielki Reset” → „Nowy Rozdział — zmieniam życie”; nowy obrazek logowania (zespół przy pracy), hasło „Zmiana zawodu i nowa ścieżka kariery” + 3 punkty o funkcjach aplikacji
+
 ## Backlog
 - P0: Prawdziwe płatności (subskrypcja Google Play) zamiast trybu demo
 - P1: Udostępnianie postępu / drogi, przypomnienia o nauce, kilka ścieżek równolegle
