@@ -38,6 +38,9 @@ Aplikacja na Sklep Play "Reset" do przebranżowienia / wyboru ścieżki zawodowe
 ## Iteration 7 (2026-06)
 - Ekran logowania: zamiast zdjęcia nowoczesna grafika w kolorach motywu (gradient marki + pływające karty: dopasowany zawód 92%, „Kurs Excela”, „Awans: kierownik”), dopasowuje się do 3 stylów
 
+## Iteration 8 (2026-06)
+- Zmiana nazwy aplikacji: Reset → **Zawodowcy** (app.json name, logo, Premium, prompt doradcy); pytanie trybu: „Jakiej zmiany szukasz?”. Identyfikatory pakietu bez zmian.
+
 ## Backlog
 - P0: Prawdziwe płatności (subskrypcja Google Play) zamiast trybu demo
 - P1: Udostępnianie postępu / drogi, przypomnienia o nauce, kilka ścieżek równolegle

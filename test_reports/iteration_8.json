@@ -1,0 +1,24 @@
+{
+  "summary": "Iteration 8 (frontend only, 390x844 viewport): checked the new AuthHero on /auth. All checks passed. Logged out with storage cleared, the hero (testID auth-hero, 390x340) shows a brand gradient (fresh theme: rgb(250,82,82) to rgb(255,135,135)), the logo 'reset.', the tagline, and the three floating cards (DOPASOWANY ZAWÓD / Specjalista ds. wdrożeń / 92%, Kurs Excela, Awans: kierownik). The page has no <img> elements and no 'unsplash' string. There was no Reanimated warning 'Property [transform] may be overwritten'. Register mode shows the 3 feature rows, and they are hidden in login mode. ADMIN / Test@123 login works and goes to /quiz (expected: the admin has no quiz profile). Setting the Dark theme in Profile and logging out gives a gold gradient (rgb(196,160,42) to rgb(226,196,95)) on a dark rgb(18,18,18) screen. The theme was reset to 'fresh' afterwards. The preview serves the new screen, so the user's report that she still sees the old login screen is most likely an old bundle still loaded on her device or web tab. The code is correct.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [".screenshots/auth_fresh.jpg", ".screenshots/auth_dark.jpg", ".screenshots/after_login.jpg"],
+  "action_items": [
+    "No code fix needed. Tell the user the new screen is live on the preview, then have her fully reload the app (in Expo Go: shake the device and tap Reload, or close and reopen it; on web: reload the tab) so the new JS bundle loads."
+  ],
+  "critical_code_review_comments": [
+    "Minor: the hero is a fixed 340px tall and the chips are absolutely positioned (top 92 and 128). On very narrow screens (<340px) the right chip 'Awans: kierownik' could overlap the left chip. It looks fine at 375/390px.",
+    "Unrelated console warning: navigation.isFocused() is called while rendering '__root'. Use the useIsFocused() hook instead."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "100%"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The theme is saved in localStorage under 'theme_name' (local only, never sent to the server). The theme option testIDs are theme-option-fresh/calm/dark on /profile, and logout is profile-logout-button (no confirm dialog). The AuthHero gradient is the first div inside [data-testid=auth-hero]."
+}

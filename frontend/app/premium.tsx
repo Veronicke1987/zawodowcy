@@ -72,7 +72,7 @@ export default function Premium() {
           <View style={styles.crown}>
             <Ionicons name="diamond" size={34} color={colors.brandPrimary} />
           </View>
-          <Text style={styles.heroTitle}>Reset Premium</Text>
+          <Text style={styles.heroTitle}>Zawodowcy Premium</Text>
           <Text style={styles.heroSub}>Szybciej do nowego zawodu — z planem i doradcą na każdy dzień.</Text>
         </LinearGradient>
 

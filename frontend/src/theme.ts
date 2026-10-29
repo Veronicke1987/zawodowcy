@@ -1,4 +1,4 @@
-// Design tokens for Reset. Three user-switchable themes (keys match the
+// Design tokens for Zawodowcy. Three user-switchable themes (keys match the
 // "color" block of /app/design_guidelines.json):
 //   fresh = "Świeży i motywujący" (default), calm = "Spokojny i profesjonalny",
 //   dark = "Ciemny i nowoczesny".

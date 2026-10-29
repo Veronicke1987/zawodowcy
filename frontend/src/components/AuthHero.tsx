@@ -28,36 +28,42 @@ export function AuthHero({ topInset }: { topInset: number }) {
       </Svg>
 
       <Text style={styles.logo} testID="app-logo">
-        reset<Text style={{ color: colors.onBrandPrimary, opacity: 0.6 }}>.</Text>
+        zawodowcy<Text style={{ color: colors.onBrandPrimary, opacity: 0.6 }}>.</Text>
       </Text>
       <Text style={styles.tagline} testID="app-tagline">
         Zmiana zawodu i nowa ścieżka kariery
       </Text>
 
       <View style={styles.stage}>
-        <Animated.View entering={FadeInUp.delay(150).duration(500)} style={[styles.mainCard, up]}>
-          <View style={styles.cardIcon}>
-            <Ionicons name="briefcase" size={20} color={colors.onBrandTertiary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.cardKicker}>DOPASOWANY ZAWÓD</Text>
-            <Text style={styles.cardTitle} numberOfLines={1}>
-              Specjalista ds. wdrożeń
-            </Text>
-          </View>
-          <View style={styles.match}>
-            <Text style={styles.matchText}>92%</Text>
-          </View>
+        <Animated.View entering={FadeInUp.delay(150).duration(500)}>
+          <Animated.View style={[styles.mainCard, up]}>
+            <View style={styles.cardIcon}>
+              <Ionicons name="briefcase" size={20} color={colors.onBrandTertiary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardKicker}>DOPASOWANY ZAWÓD</Text>
+              <Text style={styles.cardTitle} numberOfLines={1}>
+                Specjalista ds. wdrożeń
+              </Text>
+            </View>
+            <View style={styles.match}>
+              <Text style={styles.matchText}>92%</Text>
+            </View>
+          </Animated.View>
         </Animated.View>
 
-        <Animated.View entering={FadeInUp.delay(300).duration(500)} style={[styles.chip, styles.chipLeft, down]}>
-          <Ionicons name="checkmark-circle" size={18} color={colors.success} />
-          <Text style={styles.chipText}>Kurs Excela</Text>
+        <Animated.View entering={FadeInUp.delay(300).duration(500)} style={styles.chipLeft}>
+          <Animated.View style={[styles.chip, down]}>
+            <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+            <Text style={styles.chipText}>Kurs Excela</Text>
+          </Animated.View>
         </Animated.View>
 
-        <Animated.View entering={FadeInUp.delay(450).duration(500)} style={[styles.chip, styles.chipRight, up]}>
-          <Ionicons name="trending-up" size={18} color={colors.brandPrimary} />
-          <Text style={styles.chipText}>Awans: kierownik</Text>
+        <Animated.View entering={FadeInUp.delay(450).duration(500)} style={styles.chipRight}>
+          <Animated.View style={[styles.chip, up]}>
+            <Ionicons name="trending-up" size={18} color={colors.brandPrimary} />
+            <Text style={styles.chipText}>Awans: kierownik</Text>
+          </Animated.View>
         </Animated.View>
       </View>
     </View>
@@ -90,7 +96,6 @@ const useStyles = makeStyles((c) => ({
   match: { backgroundColor: c.brandPrimary, borderRadius: radius.md, paddingHorizontal: 10, paddingVertical: 6 },
   matchText: { fontFamily: fonts.extrabold, fontSize: 15, color: c.onBrandPrimary },
   chip: {
-    position: "absolute",
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
@@ -104,7 +109,7 @@ const useStyles = makeStyles((c) => ({
     shadowOffset: { width: 0, height: 6 },
     elevation: 4,
   },
-  chipLeft: { left: 0, top: 92 },
-  chipRight: { right: 0, top: 128 },
+  chipLeft: { position: "absolute", left: 0, top: 92 },
+  chipRight: { position: "absolute", right: 0, top: 128 },
   chipText: { fontFamily: fonts.bold, fontSize: 13, color: c.onSurface },
 }));

@@ -732,7 +732,7 @@ async def chat_stream(data: ChatIn, user: UserDoc = Depends(current_user)):
     history = await db.chat_messages.find({"user_id": user.id}, {"_id": 0}).sort("created_at", -1).to_list(12)
     history_txt = "\n".join(f"{'Użytkownik' if h['role'] == 'user' else 'Doradca'}: {h['text']}" for h in reversed(history))
     system = (
-        "Jesteś ciepłym, konkretnym doradcą zawodowym w aplikacji Reset, pomagającym ludziom zmienić zawód w Polsce. "
+        "Jesteś ciepłym, konkretnym doradcą zawodowym w aplikacji Zawodowcy, pomagającym ludziom zmienić zawód w Polsce. "
         "Odpowiadasz po polsku, zwięźle (maks. ok. 150-200 słów), praktycznie, z konkretnymi krokami. "
         "Pisz zwykłym tekstem bez markdown (bez **, # i tabel); listy zapisuj w nowych liniach zaczynając od '• '. Nie wymyślaj konkretnych adresów URL — zamiast tego podawaj frazy do wyszukania "
         "lub nazwy serwisów (Pracuj.pl, OLX Praca, LinkedIn, YouTube, urząd pracy, praca.gov.pl).\n\n"

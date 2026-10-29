@@ -25,7 +25,7 @@ const isIndustry = (a: Record<string, any>) => a.reset_mode === "industry";
 
 export const QUIZ_STEPS: QuizStep[] = [
   {
-    title: "Jaki reset Cię interesuje?",
+    title: "Jakiej zmiany szukasz?",
     subtitle: "Wybierz, jak dużej zmiany szukasz — dopasujemy do tego pytania i propozycje.",
     groups: [
       {
