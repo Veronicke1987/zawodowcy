@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 6: Admin panel + quiz mode-cleanup. Backend: 16/16 pytest pass (stats, users search incl. regex-safe, premium toggle on/off + /auth/me reflection, invalid id 404, grant existing -> 'granted', grant non-existent -> 'pending' and auto-applied on register (grant removed after), remove pending, 403 for non-admin on all 5 admin endpoints, 401 unauth). ADMIN_EMAILS contains weronisia1987s@gmail.com; register() sets role=admin for ADMIN_EMAILS and startup promotes existing accounts (verified by code review only, owner email NOT registered). Frontend (375x667): ADMIN profile shows 'Panel administratora' row -> /admin shows stats, Nadaj Premium disabled when empty, pending grant message in Polish + pending list + remove works, search filters to ania, premium Switch toggles off/on and badge updates, grant to existing user shows 'Nadano Premium dla ...', back button returns to /profile. ania_t1 sees no admin row; /admin shows 'Brak uprawnień administratora.'. Quiz: life mode filled (has_idea, idea, new_directions) then back to step 1 and switched to search -> 10 steps, saved GET /api/profile contains only search-mode keys (no idea/new_directions/has_idea/loves). Minor issues only.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/admin/premium/grant", "issue": "Email shorter than 3 chars (e.g. '@') returns 422 with Pydantic English detail array -> frontend shows generic 'Coś poszło nie tak. Spróbuj ponownie.'; also validation only checks '@' presence ('a@' accepted and stored as pending grant)."},
+      {"endpoint": "POST /api/admin/users/{id}/premium", "issue": "active=false sets premium=None unconditionally, which also wipes a paid (monthly/yearly) subscription; switching back on converts it to plan 'gift'. Consider only revoking gift plans or warning admin."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "admin.tsx forbidden view 'Wróć' button", "issue": "On deep-link to /admin (no history) router.back() does nothing - user stays stuck on /admin. Use same fallback as header: router.canGoBack() ? back() : replace('/(tabs)'). Button also lacks testID.", "testID": "admin-forbidden", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Admin premium Switch", "issue": "toggle() swallows API errors (.catch(() => {})) with no user feedback or loading state; Switch has no optimistic update so it snaps back until refetch completes.", "affected_testIDs": ["admin-premium-switch-<email>"]}
+    ],
+    "design_issues": [
+      {"screen": "Admin panel", "issues": ["Search input fires /admin/users request on every keystroke (no debounce)", "Off-state Switch (white thumb on light grey track) has low contrast", "pending_grants stat returned by API is not displayed"]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_reset_iter6_admin_panel.py", "/app/test_reports/pytest/iter6_admin.xml"],
+  "action_items": [
+    "admin.tsx: fix forbidden 'Wróć' button fallback when no navigation history; add testID",
+    "admin.tsx: show error feedback when premium toggle fails; optionally debounce search",
+    "server.py admin_grant_by_email: return Polish 400 for too-short/invalid email instead of 422 (validate in handler or custom message); stricter email check",
+    "Consider not wiping paid subscriptions when admin toggles premium off"
+  ],
+  "critical_code_review_comments": [
+    "Admin endpoints correctly guarded by admin_user dependency (403 Polish message); regex input escaped; password_hash excluded from admin list",
+    "register() race-safe via DuplicateKeyError; pending grant consumed on register",
+    "Quiz save filters answers to keys of visible steps - verified end-to-end; PUT /profile uses $set of whole answers object so stale keys are removed"
+  ],
+  "updated_files": ["/app/backend/tests/test_reset_iter6_admin_panel.py"],
+  "success_rate": {"backend": "100%", "frontend": "95%"},
+  "seed_data_creation": "Created temporary users test_gift_*, test_rm_*, test_quiz6_mode@test.pl and pending grants - all deleted from Mongo after testing. ania_t1 premium reset to null (free) at the end (it was found as gift premium before my run).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Login screen defaults to Rejestracja - click auth-mode-login first. ADMIN has no quiz profile -> lands on /quiz, but page.goto('/profile') or '/admin' works (token persisted). Never register weronisia1987s@gmail.com. Admin test file restores ania premium to its initial state in teardown.",
+  "rca_of_issue": ""
+}

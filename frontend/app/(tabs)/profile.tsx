@@ -54,6 +54,9 @@ export default function Profile() {
 
         <View style={{ gap: spacing.md }}>
           <Txt variant="heading">Premium i doradca</Txt>
+          {user?.role === "admin" ? (
+            <Row icon="shield-checkmark-outline" title="Panel administratora" subtitle="Użytkownicy i darmowe Premium" testID="profile-admin" onPress={() => router.push("/admin")} />
+          ) : null}
           <Row
             icon="diamond-outline"
             title={user?.is_premium ? "Masz Premium" : "Reset Premium"}

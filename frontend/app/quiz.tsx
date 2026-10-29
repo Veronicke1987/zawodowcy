@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView, KeyboardStickyView } from "react-native-keyboard-controller";
 import Animated, { FadeInRight, useAnimatedStyle, withTiming } from "react-native-reanimated";
@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
-import { Button, Chip, ErrorBox, IconButton, Txt } from "@/src/components/ui";
+import { Button, Chip, ErrorBox, IconButton, IconName, Ionicons, Txt } from "@/src/components/ui";
 import { queryClient } from "@/src/query-client";
 import { Group, QUIZ_STEPS } from "@/src/quiz-steps";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
@@ -36,8 +36,9 @@ export default function Quiz() {
       .finally(() => setLoadingPrev(false));
   }, [edit]);
 
-  const current = QUIZ_STEPS[step];
-  const isLast = step === QUIZ_STEPS.length - 1;
+  const steps = useMemo(() => QUIZ_STEPS.filter((s) => !s.showIf || s.showIf(answers)), [answers]);
+  const current = steps[Math.min(step, steps.length - 1)];
+  const isLast = step >= steps.length - 1;
   const canNext = current.groups.every((g) => {
     if (!g.required) return true;
     const v = answers[g.key];
@@ -45,7 +46,7 @@ export default function Quiz() {
   });
 
   const progressStyle = useAnimatedStyle(() => ({
-    width: withTiming(`${((step + 1) / QUIZ_STEPS.length) * 100}%`, { duration: 300 }),
+    width: withTiming(`${((step + 1) / steps.length) * 100}%`, { duration: 300 }),
   }));
 
   const set = (key: string, value: any) => setAnswers((a) => ({ ...a, [key]: value }));
@@ -56,7 +57,10 @@ export default function Quiz() {
     setSaving(true);
     setError("");
     try {
-      await api("/profile", { method: "PUT", body: { answers } });
+      // send only answers from steps visible in the chosen mode
+      const keys = new Set(["personality", ...steps.flatMap((s) => s.groups.map((g) => g.key))]);
+      const clean = Object.fromEntries(Object.entries(answers).filter(([k]) => keys.has(k)));
+      await api("/profile", { method: "PUT", body: { answers: clean } });
       await api("/recommendations/generate", { method: "POST" });
       queryClient.invalidateQueries({ queryKey: ["recommendations"] });
       await refresh();
@@ -88,7 +92,7 @@ export default function Quiz() {
         <View style={styles.headerRow}>
           {step > 0 || router.canGoBack() ? <IconButton testID="quiz-back-button" icon="arrow-back" onPress={back} /> : <View style={{ width: 44 }} />}
           <Text style={styles.stepText} testID="quiz-step-indicator">
-            Pytanie {step + 1} z {QUIZ_STEPS.length}
+            Pytanie {step + 1} z {steps.length}
           </Text>
           <View style={{ width: 44 }} />
         </View>
@@ -138,6 +142,33 @@ function GroupInput({ group, value, onChange }: { group: Group; value: any; onCh
   return (
     <View style={{ gap: spacing.md }}>
       {group.label ? <Txt variant="label">{group.label}</Txt> : null}
+      {group.type === "cards"
+        ? group.cards!.map((c) => {
+            const selected = value === c.value;
+            return (
+              <Pressable
+                key={c.value}
+                testID={`quiz-mode-${c.value}`}
+                onPress={() => {
+                  Haptics.selectionAsync().catch(() => {});
+                  onChange(c.value);
+                }}
+                style={[styles.modeCard, selected && { borderColor: colors.brandPrimary, backgroundColor: colors.brandTertiary }]}
+              >
+                <View style={[styles.modeIcon, { backgroundColor: selected ? colors.brandPrimary : colors.surfaceTertiary }]}>
+                  <Ionicons name={c.icon as IconName} size={24} color={selected ? colors.onBrandPrimary : colors.onSurface} />
+                </View>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={[styles.modeTitle, selected && { color: colors.onBrandTertiary }]}>{c.label}</Text>
+                  <Txt variant="caption" style={{ fontSize: 13, lineHeight: 18 }}>
+                    {c.desc}
+                  </Txt>
+                </View>
+                <Ionicons name={selected ? "radio-button-on" : "radio-button-off"} size={22} color={selected ? colors.brandPrimary : colors.borderStrong} />
+              </Pressable>
+            );
+          })
+        : null}
       {group.type === "single" || group.type === "multi" ? (
         <View style={styles.chips}>
           {group.options!.map((o, i) => {
@@ -229,6 +260,18 @@ const useStyles = makeStyles((c) => ({
   track: { height: 8, borderRadius: radius.pill, backgroundColor: c.surfaceTertiary, overflow: "hidden" },
   bar: { height: 8, borderRadius: radius.pill, backgroundColor: c.brandPrimary },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  modeCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: 2,
+    borderColor: c.border,
+    backgroundColor: c.surfaceSecondary,
+  },
+  modeIcon: { width: 48, height: 48, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
+  modeTitle: { fontFamily: fonts.bold, fontSize: 16, color: c.onSurface },
   input: {
     minHeight: 52,
     borderRadius: radius.md,

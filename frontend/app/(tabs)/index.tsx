@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, Career, Recommendations } from "@/src/api";
 import { Badge, Button, ErrorBox, IconButton, Ionicons, PressableScale, Txt } from "@/src/components/ui";
 import { usesNativeTabs } from "@/src/navigation";
+import { RESET_MODES } from "@/src/quiz-steps";
 import { queryClient } from "@/src/query-client";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
@@ -38,7 +39,9 @@ export default function Matches() {
       <View style={[styles.header, { paddingTop: insets.top + spacing.lg }]}>
         <View style={styles.titleRow}>
           <View style={{ flex: 1, gap: spacing.xs }}>
-            <Txt variant="caption">TWOJE DOPASOWANIA</Txt>
+            <Txt variant="caption" testID="matches-mode">
+              {data?.mode && RESET_MODES[data.mode] ? RESET_MODES[data.mode].short : "TWOJE DOPASOWANIA"}
+            </Txt>
             <Txt variant="title">Zawody dla Ciebie</Txt>
           </View>
           <IconButton testID="matches-open-chat" icon="chatbubbles-outline" onPress={() => router.push("/chat")} />

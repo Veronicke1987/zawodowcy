@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 5 tested the new reset modes (search / industry / life). Backend: 4/4 pytest passed. PUT /api/profile keeps reset_mode and the life-mode answers. GET /api/recommendations returns mode=life/industry, and mode=search when an old profile has no reset_mode. Frontend at 375x667, all flows passed. Step 1 'Jaki reset Cię interesuje?' shows 3 cards and Dalej is disabled (aria-disabled) until one is picked. The counter is 10 for search, 11 for industry and 13 for life. Switching mode on step 1 removes the extra steps (11->10, 13->10). Life steps 3-5 enforce the required fields (has_idea, new_directions). The full life quiz (current_job: księgowa) leads to the matches screen with caption 'WIELKI RESET · NOWE ŻYCIE'. All 10 careers are outside finance (pet sitter, barista, groomer, technik weterynarii, own café, agroturystyka). Editing the quiz from the profile prefills reset_mode and the life answers (life card selected, 'Pytanie 1 z 13', idea text kept). The legacy user ania_t1 sees 'TWOJE DOPASOWANIA', and in edit mode Dalej is disabled until a mode is picked. No deprecated Expo packages were found in the reviewed files.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/recommendations/generate (mode=industry)", "issue": "For a księgowa targeting IT and Logistyka, the careers are in the new industries but some are still finance work: 'Analityk biznesowy / finansowy w IT', 'Specjalista ds. kontrolingu logistycznego', 'Product Owner w fintechu'. This fits 'reuse my skills', but the prompt could tell the model to avoid finance-type duties more firmly."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Switching mode after filling mode-specific steps", "issue": "QUIZ_STEPS showIf only hides steps. Answers given in another mode (has_idea, idea, new_directions, loves, life_values, target_industries, leave_reason) stay in the answers state and are sent with PUT /profile. Example: a user fills life steps, goes back and picks 'search' or 'industry'. The LLM prompt still contains the 'idea'/'new_directions' data (profile_text dumps all answers), which can skew search/industry results. Reference: /app/frontend/app/quiz.tsx:52-60", "affected_testIDs": ["quiz-mode-search", "quiz-mode-industry", "quiz-mode-life"]}
+    ],
+    "design_issues": [
+      {"screen": "Quiz step 1", "issues": ["Before a mode is picked the counter reads 'Pytanie 1 z 10' and then jumps to 11 or 13 after selection. Minor UX; consider hiding the total until a mode is picked.", "The third card 'Wielki Reset' is partly hidden behind the sticky Dalej bar at 375x667. The user has to scroll to read its description. Acceptable."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_reset_iter5_reset_modes.py", "/app/test_reports/pytest/iter5_results.xml"],
+  "action_items": [
+    "Before PUT /profile in quiz.tsx, drop answers for steps whose showIf is false, so mode-specific keys from a mode the user left are not sent.",
+    "(Optional) Make MODE_RULES['industry'] avoid roles with the same core duties (finance/controlling for an accountant) unless the user selected that industry."
+  ],
+  "critical_code_review_comments": [
+    "quiz.tsx: answers keep keys from hidden steps (see integration_issues).",
+    "quiz-steps.ts: 'industry' mode lists 'Finanse i księgowość' in target_industries. If it is the user's current industry, this conflicts with MODE_RULES 'NIE proponuj stanowisk w obecnej branży'. Edge case.",
+    "server.py: mode is saved only when generation succeeds (status ready). Good. It falls back to 'search' for old profiles."
+  ],
+  "updated_files": ["/app/backend/tests/test_reset_iter5_reset_modes.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Registered test users test_mode_*@test.pl (API) plus test_ui_mode_a5d05f@test.pl and test_ui_life_6d7e54@test.pl / test123 (UI; the life user has a life-mode profile and recommendations).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The auth screen opens on Rejestracja. Tap auth-mode-login to log in. Tabs: tab-careers, tab-road, tab-profile. Edit quiz: profile-edit-quiz. Mode cards: quiz-mode-{search|industry|life}; options: quiz-option-{key}-{i}; text: quiz-input-{key}; caption: matches-mode. Force-clicking chips near the bottom can hit the sticky quiz-next-button and skip a step. Recommendations take ~60-80s.",
+  "rca_of_issue": ""
+}

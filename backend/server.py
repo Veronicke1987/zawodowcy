@@ -18,6 +18,7 @@ import logging
 import os
 import re
 import uuid
+from pymongo.errors import DuplicateKeyError
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -31,6 +32,7 @@ db = client[os.environ['DB_NAME']]
 JWT_SECRET = os.environ['JWT_SECRET']
 JWT_ALG = "HS256"
 LLM_KEY = os.environ['EMERGENT_LLM_KEY']
+ADMIN_EMAILS = {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
 ANALYSIS_MODEL = ("anthropic", "claude-sonnet-5-5")
 FAST_MODEL = ("openai", "gpt-6-luna")
 
@@ -218,8 +220,17 @@ async def register(data: Credentials):
         raise HTTPException(400, "Podaj poprawny adres e-mail.")
     if await db.users.find_one({"email": email}):
         raise HTTPException(409, "Konto z tym adresem już istnieje.")
-    user = UserDoc(email=email, name=data.name.strip(), password_hash=hash_pw(data.password), created_at=now_iso())
-    res = await db.users.insert_one(user.to_mongo())
+    role = "admin" if email in ADMIN_EMAILS else "user"
+    grant = await db.premium_grants.find_one({"email": email})
+    premium = {"active": True, "plan": "gift", "since": now_iso(), "granted_by": grant.get("granted_by")} if grant else None
+    user = UserDoc(email=email, name=data.name.strip(), password_hash=hash_pw(data.password), role=role,
+                   premium=premium, created_at=now_iso())
+    try:
+        res = await db.users.insert_one(user.to_mongo())
+    except DuplicateKeyError:
+        raise HTTPException(409, "Konto z tym adresem już istnieje.")
+    if grant:
+        await db.premium_grants.delete_one({"email": email})
     user.id = str(res.inserted_id)
     return {"access_token": make_token(user.id), "user": await public_user(user)}
 
@@ -258,6 +269,26 @@ async def get_profile(user: UserDoc = Depends(current_user)):
 
 
 # ---------------------------------------------------------------- recommendations
+MODE_RULES = {
+    "search": "TRYB: Szukam swojej drogi — proponuj zawody najlepiej dopasowane do umiejętności, zainteresowań i charakteru (także w obecnej branży).",
+    "industry": (
+        "TRYB: ZMIANA BRANŻY — NIE proponuj stanowisk w obecnej branży użytkownika (patrz current_job). Proponuj zawody w INNYCH branżach, "
+        "najlepiej w tych z target_industries, które wykorzystują jego przenośne umiejętności (np. obsługa programów, organizacja, kontakt z klientem, języki). "
+        "Unikaj ról, których rdzeniem są te same obowiązki co obecnie (np. księgowa → NIE analityk finansowy/kontroler/fintech nawet w innej branży). "
+        "W polu 'why' wyjaśnij, które jego umiejętności przenoszą się do nowej branży."
+    ),
+    "life": (
+        "TRYB: WIELKI RESET — ZMIANA ŻYCIA. Użytkownik chce zacząć od nowa. NIE proponuj niczego w jego obecnej branży ani zawodów "
+        "o podobnym charakterze obowiązków (np. księgowa → NIE analityk finansowy, NIE kontroler, NIE kadry). Proponuj ZUPEŁNIE INNY rodzaj pracy i rytm dnia, "
+        "dopasowany do pomysłu/marzenia (idea), kuszących kierunków (new_directions), pasji (loves), wartości (life_values) i tego, czego nie lubi. "
+        "Jeśli użytkownik ma konkretny pomysł (idea) i jest on realny — niech będzie pierwszą propozycją w odpowiedniej kategorii. "
+        "Możesz proponować też własną działalność, rzemiosło, pracę z ludźmi/zwierzętami/naturą, pracę zdalną czy za granicą. "
+        "'now' = nowe zawody, w które da się wejść szybko (krótki kurs, praca od zaraz, przyuczenie), 'future' = wymagające dłuższej nauki. "
+        "W 'summary' zacznij od motywującego zdania o nowym początku."
+    ),
+}
+
+
 async def run_recommendations(user_id: str, answers: dict, job_id: str):
     prompt = f"""Profil użytkownika (odpowiedzi z ankiety):
 {profile_text(answers)}
@@ -268,6 +299,8 @@ Zaproponuj zawody dopasowane do tej osoby, w dwóch kategoriach:
 Nie ograniczaj się do oczywistych zawodów — uwzględnij też mniej znane stanowiska realnie występujące w polskich ogłoszeniach
 (np. wdrożeniowiec systemów ERP, specjalista ds. wdrożeń, koordynator logistyki, analityk danych, specjalista ds. obsługi klienta B2B itp.).
 Weź pod uwagę to, czego użytkownik nie lubi, jego charakter i odporność zawodu na automatyzację przez AI.
+
+{MODE_RULES.get(answers.get("reset_mode") or "search", MODE_RULES["search"])}
 
 Zwróć JSON:
 {{"summary": "2-3 zdania podsumowania profilu i mocnych stron",
@@ -285,7 +318,7 @@ Zwróć JSON:
             data[cat] = items
         await db.recommendations.update_one(
             {"user_id": user_id, "job_id": job_id},
-            {"$set": {"status": "ready", "summary": data.get("summary", ""), "now": data["now"],
+            {"$set": {"status": "ready", "mode": answers.get("reset_mode") or "search", "summary": data.get("summary", ""), "now": data["now"],
                       "future": data["future"], "updated_at": now_iso()}},
         )
     except Exception as e:
@@ -731,6 +764,75 @@ async def chat_stream(data: ChatIn, user: UserDoc = Depends(current_user)):
     return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+# ---------------------------------------------------------------- admin panel
+async def admin_user(user: UserDoc = Depends(current_user)) -> UserDoc:
+    if user.role != "admin":
+        raise HTTPException(403, "Brak uprawnień administratora.")
+    return user
+
+
+class GrantIn(BaseModel):
+    email: str = Field(max_length=320)
+
+
+class PremiumToggle(BaseModel):
+    active: bool
+
+
+def admin_row(d: dict) -> dict:
+    p = d.get("premium") or {}
+    return {"id": str(d["_id"]), "email": d.get("email"), "name": d.get("name", ""), "role": d.get("role", "user"),
+            "is_premium": bool(p.get("active")), "premium_plan": p.get("plan"), "created_at": d.get("created_at")}
+
+
+@api.get("/admin/stats")
+async def admin_stats(_: UserDoc = Depends(admin_user)):
+    return {"users": await db.users.count_documents({}),
+            "premium": await db.users.count_documents({"premium.active": True}),
+            "gifted": await db.users.count_documents({"premium.plan": "gift"}),
+            "pending_grants": await db.premium_grants.count_documents({}),
+            "paths": await db.roadmaps.count_documents({})}
+
+
+@api.get("/admin/users")
+async def admin_users(q: str = "", _: UserDoc = Depends(admin_user)):
+    flt = {"$or": [{"email": {"$regex": re.escape(q.strip()), "$options": "i"}},
+                   {"name": {"$regex": re.escape(q.strip()), "$options": "i"}}]} if q.strip() else {}
+    docs = await db.users.find(flt, {"password_hash": 0}).sort("created_at", -1).to_list(200)
+    grants = await db.premium_grants.find({}, {"_id": 0}).to_list(200)
+    return {"users": [admin_row(d) for d in docs], "pending": grants}
+
+
+@api.post("/admin/users/{user_id}/premium")
+async def admin_set_premium(user_id: str, data: PremiumToggle, admin: UserDoc = Depends(admin_user)):
+    if not ObjectId.is_valid(user_id):
+        raise HTTPException(404, "Nie znaleziono użytkownika.")
+    premium = {"active": True, "plan": "gift", "since": now_iso(), "granted_by": admin.email} if data.active else None
+    res = await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {"premium": premium}})
+    if not res.matched_count:
+        raise HTTPException(404, "Nie znaleziono użytkownika.")
+    return {"ok": True, "is_premium": data.active}
+
+
+@api.post("/admin/premium/grant")
+async def admin_grant_by_email(data: GrantIn, admin: UserDoc = Depends(admin_user)):
+    email = data.email.strip().lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise HTTPException(400, "Podaj poprawny adres e-mail.")
+    premium = {"active": True, "plan": "gift", "since": now_iso(), "granted_by": admin.email}
+    res = await db.users.update_one({"email": email}, {"$set": {"premium": premium}})
+    if res.matched_count:
+        return {"ok": True, "status": "granted", "message": f"Nadano Premium dla {email}."}
+    await db.premium_grants.update_one({"email": email}, {"$set": {"email": email, "granted_by": admin.email, "created_at": now_iso()}}, upsert=True)
+    return {"ok": True, "status": "pending", "message": f"{email} nie ma jeszcze konta — Premium włączy się automatycznie po rejestracji."}
+
+
+@api.delete("/admin/premium/grant/{email}")
+async def admin_remove_grant(email: str, _: UserDoc = Depends(admin_user)):
+    await db.premium_grants.delete_one({"email": email.strip().lower()})
+    return {"ok": True}
+
+
 app.include_router(api)
 app.add_middleware(CORSMiddleware, allow_credentials=False, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -743,6 +845,9 @@ async def startup():
     async for d in db.roadmaps.find({"path_id": {"$exists": False}}, {"_id": 1}):
         await db.roadmaps.update_one({"_id": d["_id"]}, {"$set": {"path_id": uuid.uuid4().hex[:12], "active": True}})
     await db.users.create_index("username_lower", unique=True, sparse=True)
+    await db.premium_grants.create_index("email", unique=True)
+    if ADMIN_EMAILS:
+        await db.users.update_many({"email": {"$in": list(ADMIN_EMAILS)}}, {"$set": {"role": "admin"}})
     email = os.environ.get("ADMIN_EMAIL")
     username = os.environ.get("ADMIN_USERNAME")
     pw = os.environ.get("ADMIN_PASSWORD")

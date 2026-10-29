@@ -1,17 +1,60 @@
+export type CardOption = { value: string; label: string; desc: string; icon: string };
+
 export type Group = {
   key: string;
   label?: string;
-  type: "single" | "multi" | "text" | "traits";
+  type: "single" | "multi" | "text" | "traits" | "cards";
   options?: string[];
+  cards?: CardOption[];
   placeholder?: string;
   multiline?: boolean;
   required?: boolean;
   traits?: { key: string; left: string; right: string }[];
 };
 
-export type QuizStep = { title: string; subtitle: string; groups: Group[] };
+export type QuizStep = { title: string; subtitle: string; groups: Group[]; showIf?: (a: Record<string, any>) => boolean };
+
+export const RESET_MODES: Record<string, { label: string; short: string }> = {
+  search: { label: "Szukam swojej drogi", short: "SZUKAM SWOJEJ DROGI" },
+  industry: { label: "Zmiana branży", short: "ZMIANA BRANŻY" },
+  life: { label: "Wielki Reset", short: "WIELKI RESET · NOWE ŻYCIE" },
+};
+
+const isLife = (a: Record<string, any>) => a.reset_mode === "life";
+const isIndustry = (a: Record<string, any>) => a.reset_mode === "industry";
 
 export const QUIZ_STEPS: QuizStep[] = [
+  {
+    title: "Jaki reset Cię interesuje?",
+    subtitle: "Wybierz, jak dużej zmiany szukasz — dopasujemy do tego pytania i propozycje.",
+    groups: [
+      {
+        key: "reset_mode",
+        type: "cards",
+        required: true,
+        cards: [
+          {
+            value: "search",
+            label: "Szukam swojej drogi",
+            desc: "Chcę znaleźć pracę, która pasuje do tego, co już umiem i lubię.",
+            icon: "compass",
+          },
+          {
+            value: "industry",
+            label: "Zmieniam branżę",
+            desc: "Wykorzystam swoje umiejętności, ale w zupełnie innej branży.",
+            icon: "swap-horizontal",
+          },
+          {
+            value: "life",
+            label: "Wielki Reset — zmieniam życie",
+            desc: "Zaczynam od nowa: inne obowiązki, inny rytm dnia, coś, co naprawdę mnie kręci.",
+            icon: "rocket",
+          },
+        ],
+      },
+    ],
+  },
   {
     title: "Co robisz obecnie?",
     subtitle: "Zacznijmy od Twojej sytuacji — nie ma złych odpowiedzi.",
@@ -31,6 +74,108 @@ export const QUIZ_STEPS: QuizStep[] = [
         ],
       },
       { key: "current_job", label: "Obecne lub ostatnie stanowisko i branża", type: "text", placeholder: "np. kasjerka w markecie, 5 lat" },
+    ],
+  },
+  {
+    title: "Masz już coś na myśli?",
+    subtitle: "Wielki Reset zaczyna się od marzenia — nawet jeśli jest jeszcze mgliste.",
+    showIf: isLife,
+    groups: [
+      {
+        key: "has_idea",
+        type: "single",
+        required: true,
+        options: ["Tak, wiem, czego chcę", "Mam kilka luźnych pomysłów", "Nie, zaskoczcie mnie!"],
+      },
+      {
+        key: "idea",
+        label: "Opisz swój pomysł lub marzenie",
+        type: "text",
+        multiline: true,
+        placeholder: "np. chciałabym pracować ze zwierzętami, otworzyć małą kawiarnię, uczyć jogi…",
+      },
+    ],
+  },
+  {
+    title: "Jakie kierunki Cię kuszą?",
+    subtitle: "Zaznacz wszystko, co brzmi jak nowe, lepsze życie.",
+    showIf: isLife,
+    groups: [
+      {
+        key: "new_directions",
+        type: "multi",
+        required: true,
+        options: [
+          "Praca z ludźmi i pomaganie",
+          "Praca twórcza",
+          "Praca na świeżym powietrzu",
+          "Rękodzieło i rzemiosło",
+          "Technologia i internet",
+          "Własny biznes",
+          "Praca zdalna z dowolnego miejsca",
+          "Podróże i praca za granicą",
+          "Zdrowie, sport i wellbeing",
+          "Zwierzęta i natura",
+          "Edukacja i szkolenia",
+          "Kulinaria",
+        ],
+      },
+    ],
+  },
+  {
+    title: "Co kochasz robić?",
+    subtitle: "Twoje pasje to najlepsza wskazówka, dokąd iść.",
+    showIf: isLife,
+    groups: [
+      {
+        key: "loves",
+        label: "Przy czym tracisz poczucie czasu?",
+        type: "text",
+        multiline: true,
+        placeholder: "np. gotowanie dla znajomych, majsterkowanie, rozmowy z ludźmi, układanie planów podróży…",
+      },
+      {
+        key: "life_values",
+        label: "Co jest najważniejsze w nowym życiu?",
+        type: "multi",
+        options: [
+          "Sens i pomaganie",
+          "Wolność i elastyczność",
+          "Spokój i mniej stresu",
+          "Wyższe zarobki",
+          "Kontakt z ludźmi",
+          "Rozwój i nauka",
+          "Bycie szefem samego siebie",
+          "Czas dla rodziny",
+        ],
+      },
+    ],
+  },
+  {
+    title: "Do jakiej branży Cię ciągnie?",
+    subtitle: "Zaznacz branże, które Cię ciekawią. Możesz też zostawić to nam.",
+    showIf: isIndustry,
+    groups: [
+      {
+        key: "target_industries",
+        type: "multi",
+        options: [
+          "IT i nowe technologie",
+          "Finanse i księgowość",
+          "Kadry i HR",
+          "Logistyka i magazyn",
+          "Produkcja",
+          "Handel i e-commerce",
+          "Marketing i media",
+          "Zdrowie i opieka",
+          "Edukacja",
+          "Budownictwo i energetyka",
+          "Administracja publiczna",
+          "Turystyka i gastronomia",
+          "Nie wiem — zaproponujcie",
+        ],
+      },
+      { key: "leave_reason", label: "Dlaczego chcesz odejść z obecnej branży?", type: "text", placeholder: "np. brak perspektyw, automatyzacja, wypalenie" },
     ],
   },
   {

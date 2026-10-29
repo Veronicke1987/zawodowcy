@@ -24,6 +24,11 @@ Aplikacja na Sklep Play "Reset" do przebranżowienia / wyboru ścieżki zawodowe
 ## Iteration 3 (2026-06)
 - Logowanie loginem: admin `ADMIN` / `Test@123` (także admin@reset.app); pole „E-mail lub login”; cały interfejs po polsku
 
+## Iteration 4 (2026-06)
+- Tryby resetu w ankiecie: „Szukam swojej drogi”, „Zmieniam branżę” (+pytanie o branże), „Wielki Reset — zmieniam życie” (+3 pytania: pomysł, kierunki, pasje/wartości); AI w trybie Wielki Reset nie proponuje nic z obecnej branży
+- Admin właścicielki: weronisia1987s@gmail.com (ADMIN_EMAILS) — staje się adminem przy rejestracji
+- Panel administratora /admin: statystyki, nadawanie darmowego Premium po e-mailu (także przed rejestracją), przełącznik Premium per użytkownik, wyszukiwarka
+
 ## Backlog
 - P0: Prawdziwe płatności (subskrypcja Google Play) zamiast trybu demo
 - P1: Udostępnianie postępu / drogi, przypomnienia o nauce, kilka ścieżek równolegle

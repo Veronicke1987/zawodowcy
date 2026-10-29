@@ -107,6 +107,7 @@ export type Career = {
 
 export type Recommendations = {
   status: "none" | "pending" | "ready" | "error";
+  mode?: string;
   summary?: string;
   now?: Career[];
   future?: Career[];
