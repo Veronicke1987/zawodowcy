@@ -1,0 +1,29 @@
+{
+  "summary": "Retest of the iteration_12 ad fixes on the Expo web preview at 375x667, using free user ania_t1. All 4 fixes and the regression PASS. FIX 1: a fake 3rd path was seeded in MongoDB. On the new career 2f0fe194c355 there is no choose-ad-notice. Tapping 'Wybieram tę ścieżkę' shows choose-error 'Masz już 3 ścieżki. Usuń jedną w zakładce Droga, aby dodać nową.' and choose-manage-paths, with no ad-modal and no POST /api/roadmap. A 2nd tap also shows no ad, and 'Zarządzaj ścieżkami' opens /road. FIX 2: on the existing path 'Analityk finansowy' (2551fdb521cb) there is no notice and no ad. The tap goes straight to the celebration, then /road with road-career-title 'Analityk finansowy'. Verified with 2 paths and again at the 3-path limit. FIX 3: POST /roadmap was mocked to avoid an LLM call. ad-modal text was sampled every 30 ms for about 450 ms after 'Kontynuuj': it always kept the rewarded copy and never showed 'Reklamy pomagają utrzymać…'. The celebration and /road followed. FIX 4: tested with Playwright clock plus simulated document visibility. 6 min spent on the auth screen before login gave no interstitial at 45 s or 75 s after login. 6 min hidden (background) plus 30 s active gave no ad. About 5.5 min of active time gave the interstitial ('Możesz zamknąć za 5 s'). Code review agrees: lastAdAt resets when showAds becomes true, and the AppState background delta is added back. Regression (2 paths, new career): choose-ad-notice and choose-go-premium are visible. The tap opens ad-modal with 'Nagroda za 5 s' and no Kontynuuj during the countdown. No POST /roadmap is sent before the ad finishes, and 'Wyłącz reklamy z Premium' cancels (0 POSTs) and opens /premium. No deprecated Expo packages in the reviewed files.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "career/[id]", "issues": ["The inline link 'Bez reklam z Premium.' (testID choose-go-premium) is about 128x15 px, well below the 44 px touch target. Add hitSlop/padding or make it a separate small button."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/iter13_seed_helper.py"],
+  "action_items": [
+    "Optional (minor): enlarge the touch target of the choose-go-premium inline link (currently 15 px tall).",
+    "Optional (minor): SimulatedAd sets `view` in useEffect, so the first frame of a newly opened ad can still show the previous ad's kind/reason, e.g. a rewarded ad opened right after an interstitial. Use `const shown = sim ?? view` when rendering to remove the 1-frame flicker. Not observed in testing.",
+    "Optional (minor): in choose(), if the /paths query has not loaded yet (paths.data undefined), a user at the limit still gets the ad and then a 403. Consider awaiting/refetching paths, or disabling the button until paths.isSuccess."
+  ],
+  "critical_code_review_comments": [
+    "AdsProvider: resetting lastAdAt in the showAds effect correctly starts the 5-min timer at login. The AppState delta (background to active) correctly excludes background time. The interval also skips when not active.",
+    "career/[id].tsx: the limit and existing-path checks run before watchAd, and the notice is hidden when alreadyMine/atLimit/limitHit. Existing match is by career title, which is the same approach as the backend 'existing' detection."
+  ],
+  "updated_files": ["/app/backend/tests/iter13_seed_helper.py (new test helper only; no app code changed)"],
+  "success_rate": {"backend": "N/A (frontend-only retest)", "frontend": "100% (5/5 requested checks)"},
+  "seed_data_creation": "Inserted 1 temporary fake roadmap (path_id testfake0000, 'TEST_fake_0') for ania_t1 for the 3-path limit test, then deleted it. Re-choosing 'Analityk finansowy' made it active during the test; the original active path (ERP fba2ceb59234) was restored in MongoDB. ania_t1 is back to 2 paths, free (not premium). No LLM generations were triggered: POST /roadmap for the new career was mocked with Playwright route.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use `python /app/backend/tests/iter13_seed_helper.py show|seed|cleanup` (with backend .env exported) to list ania_t1's paths and recommendation careers (new/existing, cached/not), and to seed or remove fake paths. Career 2f0fe194c355 is new and its detail is already cached, so no LLM call on open. 2551fdb521cb is an existing path. Mock POST **/api/roadmap with page.route to test the ad flow without LLM cost. Interstitial: page.clock.install() before goto, then fast_forward. Simulate background by overriding document.visibilityState and dispatching visibilitychange.",
+  "rca_of_issue": ""
+}

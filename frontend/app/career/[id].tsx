@@ -8,8 +8,8 @@ import { ActivityIndicator, Modal, ScrollView, Text, View } from "react-native";
 import Animated, { FadeIn, ZoomIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useAds } from "@/src/ads/AdsProvider";
 import { api, Career, PathsResponse } from "@/src/api";
-import { useAuth } from "@/src/auth";
 import { Badge, Button, ErrorBox, IconButton, Ionicons, IconName, PressableScale, Txt } from "@/src/components/ui";
 import { queryClient } from "@/src/query-client";
 import { playSuccess } from "@/src/sound";
@@ -38,8 +38,6 @@ export default function CareerDetail() {
   const [celebrate, setCelebrate] = useState(false);
   const [chooseError, setChooseError] = useState("");
   const [limitHit, setLimitHit] = useState(false);
-  const { user } = useAuth();
-  const paths = useQuery({ queryKey: ["paths", "detail"], queryFn: () => api<PathsResponse>("/paths") });
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
@@ -52,11 +50,22 @@ export default function CareerDetail() {
   });
 
   const choose = async () => {
-    setChoosing(true);
+    if (choosing) return;
     setChooseError("");
+    setLimitHit(false);
+    const existing = paths.data?.paths.some((p) => p.title === career?.title);
+    if (!existing && atLimit) {
+      setChooseError("Masz już 3 ścieżki. Usuń jedną w zakładce Droga, aby dodać nową.");
+      setLimitHit(true);
+      return;
+    }
+    // re-activating an existing path generates nothing, so no ad
+    if (!existing && !(await watchAd("zbudować swoją ścieżkę kariery"))) return;
+    setChoosing(true);
     try {
       await api("/roadmap", { method: "POST", body: { career_id: id } });
       queryClient.invalidateQueries({ queryKey: ["roadmap"] });
+      queryClient.invalidateQueries({ queryKey: ["paths"] });
       setCelebrate(true);
       playSuccess();
       timer.current = setTimeout(() => {
@@ -73,7 +82,10 @@ export default function CareerDetail() {
 
   const career = q.data?.career;
   const d = q.data?.detail;
-  const replacing = !user?.is_premium ? paths.data?.paths.find((p) => p.title !== career?.title) : undefined;
+  const { showAds, watchAd } = useAds();
+  const paths = useQuery({ queryKey: ["paths", "detail"], queryFn: () => api<PathsResponse>("/paths") });
+  const atLimit = (paths.data?.paths.length ?? 0) >= (paths.data?.limit ?? 3);
+  const alreadyMine = !!paths.data?.paths.some((p) => p.title === q.data?.career?.title);
 
   return (
     <View style={styles.root}>
@@ -164,11 +176,11 @@ export default function CareerDetail() {
 
       <View style={[styles.sticky, { paddingBottom: insets.bottom + spacing.md }]}>
         {chooseError ? <ErrorBox testID="choose-error" message={chooseError} /> : null}
-        {limitHit ? null : replacing ? (
-          <Text style={styles.notice} testID="choose-replace-notice">
-            {(paths.data?.paths.length ?? 0) > 1 ? "Zastąpi to Twoje obecne ścieżki." : `Zastąpi to ścieżkę „${replacing.title}”.`}{" "}
-            <Text style={styles.noticeLink} onPress={() => router.push("/premium")}>
-              Z Premium masz do 3 ścieżek naraz.
+        {!limitHit && showAds && !alreadyMine && !atLimit ? (
+          <Text style={styles.notice} testID="choose-ad-notice">
+            Przed zbudowaniem ścieżki zobaczysz krótką reklamę.{" "}
+            <Text style={styles.noticeLink} testID="choose-go-premium" onPress={() => router.push("/premium")} suppressHighlighting>
+              Bez reklam z Premium.
             </Text>
           </Text>
         ) : null}

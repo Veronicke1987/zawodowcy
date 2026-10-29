@@ -1,0 +1,22 @@
+{
+  "summary": "Frontend retest of the AuthHero rewrite (flow layout, rotating job card) at widths 320/360/375/390/412. The logo 'zawodowcy.' stays on one line at every width (height 40px, 32px font, no ellipsis, no horizontal overflow). The job card rotates about every 2.8s through all 6 jobs: Elektryk, Opiekun osób starszych, Specjalista ds. wdrożeń, Operator wózka widłowego, Florysta, Kucharz. Long titles wrap onto 2 lines with no ellipsis at 320 and 360. The skill chips wrap in rows and never overlap: 3 rows at 320, 2 rows at 360 and wider. The issues found in iteration 9 (chip overlap below 330px, title truncation at 360px) are fixed. In register mode the feature row 'Zawody z każdej branży — od rzemiosła po biuro' wraps cleanly onto 2 lines, and it is hidden in login mode. Login as ADMIN / Test@123 works and redirects to /quiz, which is expected because this admin has no quiz profile. One minor finding: the card height changes between 72px and 76px when the title goes from 1 to 2 lines, so the content below shifts by 4px on some rotations.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "auth (AuthHero)", "issues": ["Minor layout shift: auth-hero-job height alternates 72px (1-line title) and 76px (2-line title), so the whole auth form below moves by 4px on some rotations. Fix: set mainCard minHeight to about 76 (or give cardTitle a fixed 2-line height of 40px)."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["browser_automation scripts (inline) – widths 320/360/375/390/412, rotation sampling over 18s, login flow"],
+  "action_items": ["Optional: set AuthHero mainCard minHeight to 76 to stop the 4px layout shift when the job title switches between 1 and 2 lines"],
+  "critical_code_review_comments": ["Logo uses adjustsFontSizeToFit, which react-native-web does not support. The logo still fits at 320px (272px container, 32px font), so there is no issue right now; just keep the font size in mind if the logo text gets longer."],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "100%"},
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "AuthHero is now flow-based. The job card (testID auth-hero-job) rotates every 2.8s, and during the 200ms FadeOut two cardRow children briefly coexist without changing the card height. The chips have no testIDs; they are the children of the last child of auth-hero. Feature rows sit under testID auth-features and are shown in register mode only. Admin login goes to /quiz.",
+  "rca_of_issue": ""
+}

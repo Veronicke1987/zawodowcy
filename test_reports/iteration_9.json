@@ -1,0 +1,31 @@
+{
+  "summary": "Auth hero responsiveness tested on web at 320x640, 360x740, 375x812, 390x844, 412x915, plus narrower stand-ins for 125% zoom (288px and 300px CSS width) and 360px with font scale capped by maxFontSizeMultiplier (logo 35.2px, tagline 18px). LOGO FIX VERIFIED: app-logo 'zawodowcy.' stays on one line at every size (height 40px; 45px at 35.2px font). No ellipsis, scrollWidth equals clientWidth. Its natural width is only about 216px even at 35.2px, against 240-364px available. Remaining hero issues: (1) the 'Awans: kierownik' chip overlaps the 'Kurs Excela' chip at widths up to about 330px, (2) the main card text is cut off at 360px and below, and the kicker wraps at 320px or less, (3) the tagline is cut off with an ellipsis at 320px or less on web. No horizontal page overflow at any width (document scrollWidth equals viewport).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AuthHero chips", "issue": "chipLeft (left:0, top:92, ~121x36) and chipRight (right:0, top:128, ~160x36) are absolutely positioned and overlap when hero inner width < ~290px. Measured: 320px viewport → Excel [24..145, 191..227], Awans [136..296, 215..251] = 9x12px overlap; 300px → 29px; 288px (360 @125% zoom) → 41px overlap. Opposite float animations (+6/-6) increase the vertical overlap to up to 24px. Reference: /app/frontend/src/components/AuthHero.tsx:112-113", "testID": "auth-hero", "priority": "MEDIUM"},
+      {"component": "AuthHero mainCard", "issue": "cardTitle 'Specjalista ds. wdrożeń' gets cut off: at 360px it shows 'Specjalista ds. wdroż…' (scrollWidth 176 > clientWidth 170), and at 320px it shows 'Specjalista ds. …' (176 > 130). At 320px or less the kicker 'DOPASOWANY ZAWÓD' also wraps to 2 lines because it has no numberOfLines. 360px is the most common Android width, so most users will see the cut-off title. Reference: AuthHero.tsx:44-46", "testID": "auth-hero", "priority": "MEDIUM"},
+      {"component": "AuthHero tagline", "issue": "On web, 'Zmiana zawodu i nowa ścieżka kariery' is cut off with an ellipsis at 320px ('...kari…', needs 277px but only 272px is available) and at 360px with font scale 1.2. adjustsFontSizeToFit does nothing on react-native-web, so web shows the ellipsis. On native it should shrink the text instead. Reference: AuthHero.tsx:33", "testID": "app-tagline", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [{"screen": "auth hero", "issues": ["Chip overlap at 320px or less (see ui_bugs)", "Main card title cut off at 360px or less"]}],
+    "react_native_issues": [{"component": "adjustsFontSizeToFit on web", "issue": "adjustsFontSizeToFit/minimumFontScale are ignored by react-native-web, which falls back to an ellipsis. The logo fits anyway (216px needed vs 240px or more available), but the tagline does not at 320px. Reference: AuthHero.tsx:30,33"}]
+  },
+  "test_report_links": ["/app/test_reports/iteration_9.json"],
+  "action_items": [
+    "Chips: stop the overlap on narrow screens. Option A: chipRight top 140 or more (the stage is ~253px tall, so it still fits), so the chips never share a vertical band. Option B: use useWindowDimensions and, when width < 360, place chipRight below chipLeft or set chipLeft to {left:0, top:92} and chipRight to {right:0, top:144}.",
+    "Main card: give the kicker numberOfLines={1}. Let cardTitle use numberOfLines={2}, or adjustsFontSizeToFit with minimumFontScale 0.8, or lower gap/padding (spacing.sm) so 'Specjalista ds. wdrożeń' fits at 360px (needs ~6px more).",
+    "Tagline: for web at 320px, either allow numberOfLines={2} or lower the fontSize to 14 (needs 277px, has 272px)."
+  ],
+  "critical_code_review_comments": [
+    "The logo fix (numberOfLines 1, adjustsFontSizeToFit, maxFontSizeMultiplier 1.1, fontSize 32) is correct and robust: it worked at every width tested.",
+    "Chip positions are hard-coded absolute offsets that do not respond to screen width, which is the root cause of the overlap."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "Logo 100% (7/7 scenarios). Hero overall: chips overlap in 3/7 scenarios, title cut off in 4/7"},
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The hero is measured on /auth through data-testid app-logo, app-tagline and auth-hero. Chips can be found as the smallest div with a non-transparent background containing 'Kurs Excela' or 'Awans: kierownik'. Native font scaling cannot be simulated on web, so inject font-size via style instead.",
+  "rca_of_issue": "Original bug: the 34px logo had no numberOfLines and no maxFontSizeMultiplier, so Android font scale pushed its width past the container and 'y' wrapped. Now fixed. Chip overlap root cause: right-anchored chipRight (160px wide) at top 128 shares its vertical band with chipLeft (top 92, height 36 → ends at 128, with ±6 animation), so on hero widths under ~290px they meet."
+}

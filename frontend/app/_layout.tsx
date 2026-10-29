@@ -7,6 +7,7 @@ import { LogBox, StyleSheet } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 
+import { AdsProvider } from "@/src/ads/AdsProvider";
 import { AuthProvider } from "@/src/auth";
 import { ErrorBoundary } from "@/src/components/error-boundary";
 import { queryClient } from "@/src/query-client";
@@ -43,7 +44,9 @@ export default function RootLayout() {
           <AuthProvider>
             <KeyboardProvider>
               <StatusBar style={scheme === "dark" ? "light" : "dark"} />
-              <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.surface } }} />
+              <AdsProvider>
+                <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.surface } }} />
+              </AdsProvider>
             </KeyboardProvider>
           </AuthProvider>
         </QueryClientProvider>

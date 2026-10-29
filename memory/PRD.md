@@ -41,7 +41,12 @@ Aplikacja na Sklep Play "Reset" do przebranżowienia / wyboru ścieżki zawodowe
 ## Iteration 8 (2026-06)
 - Zmiana nazwy aplikacji: Reset → **Zawodowcy** (app.json name, logo, Premium, prompt doradcy); pytanie trybu: „Jakiej zmiany szukasz?”. Identyfikatory pakietu bez zmian.
 
+## Iteration 9 (2026-06)
+- Model reklamowy: darmowi użytkownicy mają do 3 ścieżek i plan nauki, ale przed każdym wygenerowaniem ścieżki i planu oglądają reklamę z nagrodą; reklama pełnoekranowa co ~5 min. Premium (demo) = brak reklam + czat bez limitu
+- AdMob (react-native-google-mobile-ads), na razie testowe ID Google; w Expo Go/web symulowana reklama (src/ads/AdsProvider.tsx)
+
 ## Backlog
+- P0: Prawdziwe ID AdMob (App ID + jednostki Rewarded/Interstitial) i zgoda na reklamy (UMP/RODO) przed publikacją
 - P0: Prawdziwe płatności (subskrypcja Google Play) zamiast trybu demo
 - P1: Udostępnianie postępu / drogi, przypomnienia o nauce, kilka ścieżek równolegle
 - P2: Prawdziwe oferty pracy na żywo, plan premium, edycja profilu (imię)

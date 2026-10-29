@@ -1,0 +1,22 @@
+{
+  "summary": "Frontend-only verification of AuthHero office/non-office job rotation on /auth. On first load the card shows the office job 'Specjalista ds. wdrożeń' / 'BIURO I IT' (92%). Over ~34s all 10 jobs appeared in this order: wdrożeń -> Elektryk -> kadr i płac (BIURO I HR) -> Opiekun osób starszych -> Analityk danych (BIURO I IT) -> Operator wózka widłowego -> Księgowa (BIURO I FINANSE) -> Florysta -> marketingu (BIURO I MEDIA) -> Kucharz. Each job has a different icon that renders (22x24, Ionicons font loaded). All icon names are valid in the Ionicons glyphmap. The card is 76px tall for every job at 320 and 390 widths, and the form below does not move while jobs change. All 6 skill chips show at 320/360/390 with no overlap, truncation or overflow. The logo stays on one line (40px). The feature row text 'Zawody z każdej branży — biuro, rzemiosło, opieka i więcej' renders.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "auth hero", "issues": ["Cosmetic only: for about 200ms during each change, the old row (FadeOut) and the new row (FadeIn) overlap in the card, so the two titles show on top of each other mid-fade. Acceptable as a crossfade. Optionally shorten or remove the exiting animation for a cleaner swap.", "At 320px, long titles such as 'Specjalista ds. wdrożeń' wrap to 2 lines but still fit within the 76px minHeight."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": ["AuthHero.tsx is clean: the interval is cleared on unmount and the icon names are typed via IconName. No deprecated Expo packages in the files reviewed."],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "100%"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Hero card testID auth-hero-job rotates every 2.8s through 10 jobs. Chip labels are leaf divs inside auth-hero. Card height is constant at 76.",
+  "rca_of_issue": ""
+}

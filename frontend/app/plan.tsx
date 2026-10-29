@@ -5,8 +5,8 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-nati
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useAds } from "@/src/ads/AdsProvider";
 import { api, StudyPlan } from "@/src/api";
-import { useAuth } from "@/src/auth";
 import { Badge, Button, ErrorBox, IconButton, Ionicons, Txt } from "@/src/components/ui";
 import { queryClient } from "@/src/query-client";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
@@ -16,7 +16,7 @@ export default function PlanScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
   const router = useRouter();
-  const { user } = useAuth();
+  const { watchAd } = useAds();
   const [open, setOpen] = useState<number>(1);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
@@ -28,8 +28,9 @@ export default function PlanScreen() {
   });
 
   const create = async () => {
-    setStarting(true);
     setError("");
+    if (!(await watchAd("ułożyć plan nauki"))) return;
+    setStarting(true);
     try {
       await api("/roadmap/study-plan", { method: "POST" });
       queryClient.invalidateQueries({ queryKey: ["study-plan"] });
@@ -56,18 +57,7 @@ export default function PlanScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: spacing.xl, gap: spacing.lg, paddingBottom: insets.bottom + spacing.xl }}>
-        {!user?.is_premium ? (
-          <View style={styles.upsell} testID="plan-upsell">
-            <Ionicons name="calendar" size={36} color={colors.onBrandTertiary} />
-            <Txt variant="title" style={{ textAlign: "center" }}>
-              Plan nauki w Premium
-            </Txt>
-            <Txt style={{ textAlign: "center" }}>
-              AI ułoży Ci 8-tygodniowy plan: co robić w każdym tygodniu, ile godzin i z jakich materiałów — dopasowany do Twojego czasu.
-            </Txt>
-            <Button testID="plan-go-premium" title="Odblokuj Premium" icon="diamond" onPress={() => router.push("/premium")} style={{ alignSelf: "stretch" }} />
-          </View>
-        ) : q.isLoading ? (
+        {q.isLoading ? (
           <ActivityIndicator color={colors.brandPrimary} />
         ) : q.isError ? (
           <ErrorBox testID="plan-error" message={(q.error as Error).message} onRetry={() => q.refetch()} />

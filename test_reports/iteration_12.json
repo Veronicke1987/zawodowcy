@@ -1,0 +1,36 @@
+{
+  "summary": "Tested the change where ads replace payment and Premium removes ads. Backend: 6/6 pytest pass. Free users can have up to 3 paths, a 4th returns 403 and nothing is replaced, /paths returns limit=3 with is_premium=false, and the study-plan POST has no 402 gate (400 only when there is no ready path). Frontend (375x667 web preview) had all requested flows working. Free user: the ad notice shows on career detail. 'Wybieram tę ścieżkę' opens ad-modal with a 5 s countdown and no Kontynuuj button until it ends. Kontynuuj then shows the celebration and opens /road with path chips going from 1 to 2, so the path was added. 'Wyłącz reklamy z Premium' cancels (no path created) and opens /premium, which shows all 3 perks. Plan: no upsell. 'Ułóż mój plan' shows the ad, then plan-pending, then the plan is ready. 'Ułóż nowy plan' also shows the ad, and cancelling it does not regenerate. Premium (demo) user: no notice, no ad, choosing goes straight to the celebration. Interstitial checked with Playwright clock fast-forward: no ad at 2 min, ad at 5.5 min ('Możesz zamknąć za N s', then the close button), and no new ad 1 min after closing. Found 2 UX logic issues: the user watches the ad before the 3-path limit and existing-path checks, and modal copy flips to interstitial text while it fades out.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "career detail choose flow", "issue": "A free user with 3 paths still sees the ad notice and must watch the full rewarded ad. Only after that does POST /roadmap return 403 'Masz już 3 ścieżki...'. The notice is hidden only after the first 403 (the limitHit state). Reproduced by seeding a 3rd path. Fix: check the /paths count (and whether this career is already a path) before calling watchAd, and hide the notice when the limit is reached. Reference: app/career/[id].tsx:52-71,166", "testID": "choose-path-button", "priority": "MEDIUM"},
+      {"component": "career detail re-select", "issue": "Re-selecting a career that is already one of the user's paths shows a rewarded ad. The backend only re-activates the existing path (existing:true), with no generation. No ad should be needed here. Reference: app/career/[id].tsx:54", "testID": "choose-path-button", "priority": "LOW"},
+      {"component": "SimulatedAd fade-out", "issue": "When a rewarded ad closes, setSim(null) runs before the fade animation ends. So 'rewarded' becomes false, and for about 300 ms the fading modal shows the interstitial copy ('Reklamy pomagają utrzymać aplikację za darmo.') with the Kontynuuj button gone. Seen in a screenshot on /plan. Fix: keep the last sim in a ref for rendering while visible=false. Reference: src/ads/AdsProvider.tsx:77-80,101", "testID": "ad-modal", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "career detail", "issues": ["Inline link 'Bez reklam z Premium.' is a nested Text with onPress. It has no testID and a small touch target (font about 12-13px, well under 44pt)."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_reset_iter12_ads_free_paths.py", "/app/test_reports/pytest/iter12.xml"],
+  "action_items": [
+    "app/career/[id].tsx: before watchAd, skip the ad and show the limit error / 'Zarządzaj ścieżkami' when the user already has 3 paths. Also skip the ad when the career title matches an existing path. Use the cached /paths query and hide choose-ad-notice in those cases.",
+    "AdsProvider SimulatedAd: keep the rendered kind and reason stable during the fade-out, so the copy does not flip to the interstitial text.",
+    "Optional: reset lastAdAt when the user logs in, or when showAds becomes true. Right now it is set at provider mount, so a user who sits on the auth screen for over 5 minutes gets an interstitial about 15 s after login. Background time also counts toward the 5 minutes, because it is a wall-clock check.",
+    "Optional: add a testID to the 'Bez reklam z Premium.' inline link and enlarge its touch target."
+  ],
+  "critical_code_review_comments": [
+    "AdsProvider.watchAd: a double tap on choose-path-button before the modal shows calls simulate twice. The second setSim overwrites the first resolve, so the first promise never settles. That is harmless but leaks. Consider an early return when busy.current is true.",
+    "The interstitial can open over any screen (Premium checkout, chat typing, celebration). Consider suppressing it on /premium and /auth.",
+    "ads.ts guarded require plus the ads.web.ts split is correct. Real AdMob uses Google TestIds unless EXPO_PUBLIC_ADMOB_* env is set. Swap in real IDs before release.",
+    "server.py: the study-plan section comment still says '(premium)' (line ~614), which is cosmetic. PREMIUM_PATH_LIMIT is now effectively the limit for everyone, so consider renaming it to PATH_LIMIT."
+  ],
+  "updated_files": ["/app/backend/tests/test_reset_iter12_ads_free_paths.py"],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "100% of requested flows pass; 2 UX logic issues found"},
+  "seed_data_creation": "Created 1 real path 'Analityk finansowy' (path_id 82c129942de4) for ania_t1 with a ready study plan (1 path LLM call + 1 plan LLM call). Temporary fake roadmap docs (TEST_fake / testfake0001) were inserted and then deleted. Premium was activated during the test and reverted with /premium/cancel (is_premium=false verified). ania_t1 now has 2 paths; the active one is the original ERP path (fba2ceb59234).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The auth screen defaults to register mode, so click auth-mode-login first. Career ids come from recommendations now/future (e.g. 2551fdb521cb 'Analityk finansowy', which already exists as a path, so re-choosing it costs no LLM). The interstitial can be tested quickly with page.clock.install() before goto, then page.clock.fast_forward('05:30'). Frontend env var is EXPO_PUBLIC_BACKEND_URL.",
+  "rca_of_issue": "The ad-before-limit issue comes from choose() in career/[id].tsx. It calls watchAd unconditionally before POST /roadmap, and the 3-path limit and existing-path checks happen only on the server after the ad."
+}

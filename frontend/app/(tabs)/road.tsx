@@ -6,7 +6,6 @@ import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, Text, 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, Milestone, PathsResponse, Roadmap, Task } from "@/src/api";
-import { useAuth } from "@/src/auth";
 import { milestoneDone, RoadMap } from "@/src/components/RoadMap";
 import { MilestoneSheet, TaskSheet } from "@/src/components/TaskSheet";
 import { Button, ErrorBox, IconButton, Ionicons, Txt } from "@/src/components/ui";
@@ -21,7 +20,6 @@ export default function RoadScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
   const router = useRouter();
-  const { user } = useAuth();
   const [taskId, setTaskId] = useState<string | null>(null);
   const [ms, setMs] = useState<{ m: Milestone; i: number } | null>(null);
 
@@ -114,7 +112,6 @@ export default function RoadScreen() {
           <Pressable testID="road-open-plan" onPress={() => router.push("/plan")} style={styles.action}>
             <Ionicons name="calendar-outline" size={16} color={colors.onSurface} />
             <Text style={styles.actionText}>Plan nauki</Text>
-            {!user?.is_premium ? <Ionicons name="diamond" size={12} color={colors.brandPrimary} /> : null}
           </Pressable>
           {(paths.data?.paths || []).map((p) => (
             <Pressable
@@ -131,7 +128,7 @@ export default function RoadScreen() {
           ))}
           <Pressable
             testID="road-add-path"
-            onPress={() => (user?.is_premium ? router.navigate("/(tabs)") : router.push("/premium"))}
+            onPress={() => router.navigate("/(tabs)")}
             style={[styles.action, { borderStyle: "dashed" }]}
           >
             <Ionicons name="add" size={16} color={colors.onSurface} />

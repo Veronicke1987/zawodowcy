@@ -491,9 +491,7 @@ async def choose_path(data: RoadmapIn, user: UserDoc = Depends(current_user)):
         await db.roadmaps.update_many({"user_id": user.id}, {"$set": {"active": False}})
         await db.roadmaps.update_one({"user_id": user.id, "path_id": same["path_id"]}, {"$set": {"active": True}})
         return {"status": same["status"], "path_id": same["path_id"], "existing": True}
-    if not is_premium(user):
-        await db.roadmaps.delete_many({"user_id": user.id})
-    elif len(existing) >= PREMIUM_PATH_LIMIT:
+    if len(existing) >= PREMIUM_PATH_LIMIT:
         raise HTTPException(403, f"Masz już {PREMIUM_PATH_LIMIT} ścieżki. Usuń jedną w zakładce Droga, aby dodać nową.")
     prof = await db.profiles.find_one({"user_id": user.id}) or {}
     job_id = uuid.uuid4().hex
@@ -522,7 +520,7 @@ async def list_paths(user: UserDoc = Depends(current_user)):
         tasks = [t for m in d.get("milestones", []) for t in m.get("tasks", [])]
         out.append({"path_id": d["path_id"], "title": d["career"]["title"], "status": d["status"], "active": bool(d.get("active")),
                     "progress": round(100 * sum(1 for t in tasks if t.get("done")) / len(tasks)) if tasks else 0})
-    return {"paths": out, "limit": PREMIUM_PATH_LIMIT if is_premium(user) else 1, "is_premium": is_premium(user)}
+    return {"paths": out, "limit": PREMIUM_PATH_LIMIT, "is_premium": is_premium(user)}
 
 
 @api.post("/paths/{path_id}/activate")
@@ -645,8 +643,6 @@ Zwróć JSON:
 
 @api.post("/roadmap/study-plan")
 async def create_study_plan(path_id: Optional[str] = None, user: UserDoc = Depends(current_user)):
-    if not is_premium(user):
-        raise HTTPException(402, "Plan nauki tydzień po tygodniu jest dostępny w Premium.")
     doc = await get_path(user.id, path_id, {"_id": 0, "path_id": 1, "status": 1})
     if not doc or doc["status"] != "ready":
         raise HTTPException(400, "Najpierw wybierz ścieżkę i poczekaj, aż droga będzie gotowa.")

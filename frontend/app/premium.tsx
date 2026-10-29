@@ -18,8 +18,8 @@ const PLANS = [
 ] as const;
 
 const PERKS: { icon: IconName; title: string; text: string }[] = [
-  { icon: "git-branch", title: "Do 3 ścieżek naraz", text: "Porównuj kilka zawodów i rozwijaj je równolegle." },
-  { icon: "calendar", title: "Plan nauki tydzień po tygodniu", text: "AI układa 8-tygodniowy plan dopasowany do Twojego czasu." },
+  { icon: "eye-off", title: "Bez reklam", text: "Żadnych reklam przy ścieżkach, planie nauki ani w trakcie korzystania." },
+  { icon: "flash", title: "Wszystko od razu", text: "Ścieżki kariery i plan nauki generujesz bez oglądania reklam." },
   { icon: "chatbubbles", title: "Bez limitu rozmów z doradcą", text: "Pytaj o wszystko, kiedy chcesz — bez dziennego limitu." },
 ];
 

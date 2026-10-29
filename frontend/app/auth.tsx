@@ -11,7 +11,7 @@ import { Button, ErrorBox, Ionicons, Txt } from "@/src/components/ui";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 const FEATURES = [
-  { icon: "briefcase", text: "Zawody dopasowane do Ciebie" },
+  { icon: "briefcase", text: "Zawody z każdej branży — biuro, rzemiosło, opieka i więcej" },
   { icon: "trending-up", text: "Ścieżka kariery krok po kroku" },
   { icon: "school", text: "Kursy, studia i oferty pracy" },
 ] as const;
@@ -143,7 +143,7 @@ const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surface },
   feature: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   featureIcon: { width: 32, height: 32, borderRadius: radius.sm, backgroundColor: c.brandTertiary, alignItems: "center", justifyContent: "center" },
-  featureText: { fontFamily: fonts.semibold, fontSize: 14, color: c.onSurface },
+  featureText: { flex: 1, fontFamily: fonts.semibold, fontSize: 14, color: c.onSurface },
   body: { paddingHorizontal: spacing.xl, gap: spacing.lg, marginTop: spacing.xl },
   segment: { flexDirection: "row", backgroundColor: c.surfaceTertiary, borderRadius: radius.pill, padding: 4, marginTop: spacing.sm },
   segBtn: { flex: 1, height: 44, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },

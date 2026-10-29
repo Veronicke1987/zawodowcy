@@ -60,7 +60,7 @@ export default function Profile() {
           <Row
             icon="diamond-outline"
             title={user?.is_premium ? "Masz Premium" : "Zawodowcy Premium"}
-            subtitle={user?.is_premium ? "Zarządzaj subskrypcją" : "Do 3 ścieżek, plan nauki, czat bez limitu"}
+            subtitle={user?.is_premium ? "Bez reklam · zarządzaj subskrypcją" : "Wyłącz reklamy i rozmawiaj z doradcą bez limitu"}
             testID="profile-premium"
             onPress={() => router.push("/premium")}
           />
