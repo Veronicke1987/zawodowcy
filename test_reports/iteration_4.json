@@ -1,0 +1,16 @@
+{
+  "summary": "Login fix verified end-to-end. Backend: 12/12 pytest pass (ADMIN/admin/' ADMIN '/Admin/admin@reset.app/ADMIN@RESET.APP + Test@123 -> 200 token role admin; /auth/me role admin; wrong pw & unknown login -> 401 'Nieprawidłowy login/e-mail lub hasło.'; ania_t1@test.pl/test123 ok; register with 'ADMIN' -> 400 'Podaj poprawny adres e-mail.'). Frontend (375x667): login tab label 'E-mail lub login'; ADMIN wrong pw shows Polish error; ADMIN, admin, admin@reset.app all log in and land on /quiz (Polish 'Pytanie 1 z 9'); register mode label 'E-mail' and rejects 'ADMIN' with Polish error; ania lands on Zawody tab, Droga and Profil tabs all Polish. Source scan found no English UI strings. No deprecated Expo packages.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": [], "react_native_issues": []},
+  "test_report_links": ["/app/backend/tests/test_reset_iter4_login_username.py", "/app/test_reports/pytest/pytest_iter4.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Login subtitle under 'Witaj z powrotem' reuses onboarding copy ('Odpowiedz na kilka pytań...') - cosmetic, optional."
+  ],
+  "updated_files": ["/app/backend/tests/test_reset_iter4_login_username.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Admin login: ADMIN (case-insensitive, via username_lower) or admin@reset.app / Test@123. API field is still 'email'. Admin has no quiz profile -> /quiz after login."
+}

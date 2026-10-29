@@ -21,6 +21,9 @@ Aplikacja na Sklep Play "Reset" do przebranżowienia / wyboru ścieżki zawodowe
 - Premium w trybie DEMO (19,99 zł/mies., 149,99 zł/rok): do 3 ścieżek naraz (darmowo 1), 8-tygodniowy plan nauki (Claude Sonnet 5.5)
 - Wiele ścieżek: /api/paths, przełączanie, usuwanie; ekrany /chat, /premium, /plan. Testy: iteracja 3 zaliczona + poprawki
 
+## Iteration 3 (2026-06)
+- Logowanie loginem: admin `ADMIN` / `Test@123` (także admin@reset.app); pole „E-mail lub login”; cały interfejs po polsku
+
 ## Backlog
 - P0: Prawdziwe płatności (subskrypcja Google Play) zamiast trybu demo
 - P1: Udostępnianie postępu / drogi, przypomnienia o nauce, kilka ścieżek równolegle

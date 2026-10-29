@@ -226,9 +226,11 @@ async def register(data: Credentials):
 
 @api.post("/auth/login")
 async def login(data: Credentials):
-    doc = await db.users.find_one({"email": data.email.strip().lower()})
+    ident = data.email.strip().lower()
+    query = {"email": ident} if "@" in ident else {"username_lower": ident}
+    doc = await db.users.find_one(query)
     if not doc or not verify_pw(data.password, doc["password_hash"]):
-        raise HTTPException(401, "Nieprawidłowy e-mail lub hasło.")
+        raise HTTPException(401, "Nieprawidłowy login/e-mail lub hasło.")
     user = UserDoc.from_mongo(doc)
     return {"access_token": make_token(user.id), "user": await public_user(user)}
 
@@ -740,10 +742,14 @@ async def startup():
     await db.chat_usage.create_index([("user_id", 1), ("day", 1)], unique=True)
     async for d in db.roadmaps.find({"path_id": {"$exists": False}}, {"_id": 1}):
         await db.roadmaps.update_one({"_id": d["_id"]}, {"$set": {"path_id": uuid.uuid4().hex[:12], "active": True}})
+    await db.users.create_index("username_lower", unique=True, sparse=True)
     email = os.environ.get("ADMIN_EMAIL")
+    username = os.environ.get("ADMIN_USERNAME")
     pw = os.environ.get("ADMIN_PASSWORD")
     if email and pw and not await db.users.find_one({"email": email}):
         await db.users.insert_one(UserDoc(email=email, name="Admin", password_hash=hash_pw(pw), role="admin", created_at=now_iso()).to_mongo())
+    if email and username:  # never overwrites the password, only attaches the login name
+        await db.users.update_one({"email": email}, {"$set": {"username": username, "username_lower": username.strip().lower()}})
 
 
 @app.on_event("shutdown")

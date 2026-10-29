@@ -29,7 +29,8 @@ export default function AuthScreen() {
 
   const submit = async () => {
     setError("");
-    if (!email.includes("@")) return setError("Podaj poprawny adres e-mail.");
+    if (mode === "register" && !email.includes("@")) return setError("Podaj poprawny adres e-mail.");
+    if (mode === "login" && !email.trim()) return setError("Podaj e-mail lub login.");
     if (password.length < 6) return setError("Hasło musi mieć co najmniej 6 znaków.");
     setLoading(true);
     try {
@@ -62,7 +63,9 @@ export default function AuthScreen() {
         <Animated.View entering={FadeInDown.duration(500)} style={styles.body}>
           <Txt variant="display">{mode === "login" ? "Witaj z powrotem" : "Zacznij od nowa"}</Txt>
           <Txt style={{ marginTop: spacing.sm }}>
-            Odpowiedz na kilka pytań, a pokażemy Ci zawody, które do Ciebie pasują — i drogę, jak do nich dojść.
+            {mode === "login"
+              ? "Zaloguj się, aby wrócić do swoich zawodów i drogi kariery."
+              : "Odpowiedz na kilka pytań, a pokażemy Ci zawody, które do Ciebie pasują — i drogę, jak do nich dojść."}
           </Txt>
 
           <View style={styles.segment}>
@@ -87,13 +90,14 @@ export default function AuthScreen() {
             <Field label="Imię" testID="auth-name-input" value={name} onChangeText={setName} placeholder="np. Anna" />
           ) : null}
           <Field
-            label="E-mail"
+            label={mode === "login" ? "E-mail lub login" : "E-mail"}
             testID="auth-email-input"
             value={email}
             onChangeText={setEmail}
-            placeholder="twoj@email.pl"
-            keyboardType="email-address"
+            placeholder={mode === "login" ? "twoj@email.pl lub login" : "twoj@email.pl"}
+            keyboardType={mode === "login" ? "default" : "email-address"}
             autoCapitalize="none"
+            autoCorrect={false}
           />
           <Field
             label="Hasło"
