@@ -8,7 +8,8 @@ import { ActivityIndicator, Modal, ScrollView, Text, View } from "react-native";
 import Animated, { FadeIn, ZoomIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, Career } from "@/src/api";
+import { api, Career, PathsResponse } from "@/src/api";
+import { useAuth } from "@/src/auth";
 import { Badge, Button, ErrorBox, IconButton, Ionicons, IconName, PressableScale, Txt } from "@/src/components/ui";
 import { queryClient } from "@/src/query-client";
 import { playSuccess } from "@/src/sound";
@@ -36,6 +37,9 @@ export default function CareerDetail() {
   const [choosing, setChoosing] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
   const [chooseError, setChooseError] = useState("");
+  const [limitHit, setLimitHit] = useState(false);
+  const { user } = useAuth();
+  const paths = useQuery({ queryKey: ["paths", "detail"], queryFn: () => api<PathsResponse>("/paths") });
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
@@ -61,6 +65,7 @@ export default function CareerDetail() {
       }, 2200);
     } catch (e: any) {
       setChooseError(e.message);
+      setLimitHit(e.status === 403);
     } finally {
       setChoosing(false);
     }
@@ -68,6 +73,7 @@ export default function CareerDetail() {
 
   const career = q.data?.career;
   const d = q.data?.detail;
+  const replacing = !user?.is_premium ? paths.data?.paths.find((p) => p.title !== career?.title) : undefined;
 
   return (
     <View style={styles.root}>
@@ -158,6 +164,17 @@ export default function CareerDetail() {
 
       <View style={[styles.sticky, { paddingBottom: insets.bottom + spacing.md }]}>
         {chooseError ? <ErrorBox testID="choose-error" message={chooseError} /> : null}
+        {limitHit ? null : replacing ? (
+          <Text style={styles.notice} testID="choose-replace-notice">
+            {(paths.data?.paths.length ?? 0) > 1 ? "Zastąpi to Twoje obecne ścieżki." : `Zastąpi to ścieżkę „${replacing.title}”.`}{" "}
+            <Text style={styles.noticeLink} onPress={() => router.push("/premium")}>
+              Z Premium masz do 3 ścieżek naraz.
+            </Text>
+          </Text>
+        ) : null}
+        {limitHit ? (
+          <Button testID="choose-manage-paths" title="Zarządzaj ścieżkami" variant="ghost" onPress={() => router.dismissTo("/(tabs)/road")} />
+        ) : null}
         <Button testID="choose-path-button" title="Wybieram tę ścieżkę" icon="flag" onPress={choose} loading={choosing} disabled={!d} />
       </View>
 
@@ -234,6 +251,8 @@ const useStyles = makeStyles((c) => ({
   },
   linkText: { fontFamily: fonts.semibold, fontSize: 14, color: c.onSurface },
   topBar: { position: "absolute", left: spacing.lg },
+  notice: { fontFamily: fonts.medium, fontSize: 12, lineHeight: 17, color: c.muted, textAlign: "center" },
+  noticeLink: { fontFamily: fonts.bold, color: c.brandPrimary },
   sticky: {
     position: "absolute",
     left: 0,

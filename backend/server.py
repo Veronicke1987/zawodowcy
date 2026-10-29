@@ -1,4 +1,5 @@
 from fastapi import FastAPI, APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -80,6 +81,7 @@ class UserDoc(BaseDocument):
     password_hash: str
     role: str = "user"
     created_at: str
+    premium: Optional[dict] = None
 
 
 class Credentials(BaseModel):
@@ -140,7 +142,8 @@ async def current_user(cred: HTTPAuthorizationCredentials | None = Depends(beare
 
 async def public_user(u: UserDoc) -> dict:
     profile = await db.profiles.find_one({"user_id": u.id}, {"_id": 0, "user_id": 1})
-    return {"id": u.id, "email": u.email, "name": u.name, "role": u.role, "has_profile": bool(profile)}
+    return {"id": u.id, "email": u.email, "name": u.name, "role": u.role, "has_profile": bool(profile),
+            "is_premium": bool(u.premium and u.premium.get("active"))}
 
 
 # ---------------------------------------------------------------- LLM helpers
@@ -360,7 +363,59 @@ Opisz ten zawód na podstawie typowych ofert pracy w Polsce (Pracuj.pl, OLX, Lin
     return {"career": career, "detail": detail, "job_links": job_links(career["title"])}
 
 
-# ---------------------------------------------------------------- roadmap
+# ---------------------------------------------------------------- premium (demo mode, no real payments yet)
+PREMIUM_PATH_LIMIT = 3
+FREE_CHAT_PER_DAY = 5
+PREMIUM_PLANS = {
+    "monthly": {"label": "Miesięczny", "price": "19,99 zł", "period": "miesiąc"},
+    "yearly": {"label": "Roczny", "price": "149,99 zł", "period": "rok"},
+}
+
+
+class PremiumIn(BaseModel):
+    plan: str
+
+
+def is_premium(u: UserDoc) -> bool:
+    return bool(u.premium and u.premium.get("active"))
+
+
+@api.get("/premium")
+async def premium_info(user: UserDoc = Depends(current_user)):
+    return {"is_premium": is_premium(user), "premium": user.premium, "plans": PREMIUM_PLANS,
+            "path_limit": PREMIUM_PATH_LIMIT, "free_chat_per_day": FREE_CHAT_PER_DAY, "demo": True}
+
+
+@api.post("/premium/subscribe")
+async def premium_subscribe(data: PremiumIn, user: UserDoc = Depends(current_user)):
+    if data.plan not in PREMIUM_PLANS:
+        raise HTTPException(400, "Nieznany plan.")
+    premium = {"active": True, "plan": data.plan, "since": now_iso(), "demo": True}
+    await db.users.update_one({"_id": ObjectId(user.id)}, {"$set": {"premium": premium}})
+    return {"ok": True, "premium": premium}
+
+
+@api.post("/premium/cancel")
+async def premium_cancel(user: UserDoc = Depends(current_user)):
+    await db.users.update_one({"_id": ObjectId(user.id)}, {"$set": {"premium": None}})
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- roadmap / paths
+ROADMAP_PROJ = {"_id": 0, "milestones.tasks.resources": 0}
+
+
+async def get_path(user_id: str, path_id: Optional[str] = None, projection: Optional[dict] = None):
+    q = {"user_id": user_id}
+    if path_id:
+        q["path_id"] = path_id
+        return await db.roadmaps.find_one(q, projection)
+    doc = await db.roadmaps.find_one({**q, "active": True}, projection)
+    if not doc:
+        doc = await db.roadmaps.find_one(q, projection, sort=[("created_at", -1)])
+    return doc
+
+
 async def run_roadmap(user_id: str, career: dict, answers: dict, job_id: str):
     prompt = f"""Użytkownik wybrał ścieżkę kariery: {career['title']} (branża: {career.get('industry', '')}).
 Profil użytkownika: {profile_text(answers)}
@@ -394,29 +449,71 @@ Zwróć JSON:
 @api.post("/roadmap")
 async def choose_path(data: RoadmapIn, user: UserDoc = Depends(current_user)):
     career = await find_career(user.id, data.career_id)
+    await db.roadmaps.delete_many({"user_id": user.id, "status": "error"})
+    existing = await db.roadmaps.find({"user_id": user.id}, {"_id": 0, "path_id": 1, "career": 1, "status": 1}).to_list(100)
+    same = next((d for d in existing if d["career"]["title"] == career["title"] and d.get("status") != "error"), None)
+    if same:
+        await db.roadmaps.update_many({"user_id": user.id}, {"$set": {"active": False}})
+        await db.roadmaps.update_one({"user_id": user.id, "path_id": same["path_id"]}, {"$set": {"active": True}})
+        return {"status": same["status"], "path_id": same["path_id"], "existing": True}
+    if not is_premium(user):
+        await db.roadmaps.delete_many({"user_id": user.id})
+    elif len(existing) >= PREMIUM_PATH_LIMIT:
+        raise HTTPException(403, f"Masz już {PREMIUM_PATH_LIMIT} ścieżki. Usuń jedną w zakładce Droga, aby dodać nową.")
     prof = await db.profiles.find_one({"user_id": user.id}) or {}
     job_id = uuid.uuid4().hex
-    await db.roadmaps.replace_one(
-        {"user_id": user.id},
-        {"user_id": user.id, "career": career, "status": "pending", "job_id": job_id, "milestones": [],
-         "started_at": now_iso(), "created_at": now_iso()},
-        upsert=True,
-    )
+    path_id = uuid.uuid4().hex[:12]
+    await db.roadmaps.update_many({"user_id": user.id}, {"$set": {"active": False}})
+    await db.roadmaps.insert_one({"user_id": user.id, "path_id": path_id, "active": True, "career": career, "status": "pending",
+                                  "job_id": job_id, "milestones": [], "started_at": now_iso(), "created_at": now_iso()})
     spawn(run_roadmap(user.id, career, prof.get("answers", {}), job_id))
-    return {"status": "pending"}
+    return {"status": "pending", "path_id": path_id}
 
 
 @api.get("/roadmap")
-async def get_roadmap(user: UserDoc = Depends(current_user)):
-    doc = await db.roadmaps.find_one({"user_id": user.id}, {"_id": 0, "milestones.tasks.resources": 0})
+async def get_roadmap(path_id: Optional[str] = None, user: UserDoc = Depends(current_user)):
+    doc = await get_path(user.id, path_id, ROADMAP_PROJ)
     if doc and await expire_stale(db.roadmaps, user.id, doc):
         doc["status"] = "error"
     return doc or {"status": "none"}
 
 
+@api.get("/paths")
+async def list_paths(user: UserDoc = Depends(current_user)):
+    docs = await db.roadmaps.find({"user_id": user.id}, {"_id": 0, "path_id": 1, "career": 1, "status": 1, "active": 1,
+                                                         "milestones.tasks.done": 1, "created_at": 1}).sort("created_at", 1).to_list(100)
+    out = []
+    for d in docs:
+        tasks = [t for m in d.get("milestones", []) for t in m.get("tasks", [])]
+        out.append({"path_id": d["path_id"], "title": d["career"]["title"], "status": d["status"], "active": bool(d.get("active")),
+                    "progress": round(100 * sum(1 for t in tasks if t.get("done")) / len(tasks)) if tasks else 0})
+    return {"paths": out, "limit": PREMIUM_PATH_LIMIT if is_premium(user) else 1, "is_premium": is_premium(user)}
+
+
+@api.post("/paths/{path_id}/activate")
+async def activate_path(path_id: str, user: UserDoc = Depends(current_user)):
+    if not await db.roadmaps.find_one({"user_id": user.id, "path_id": path_id}, {"_id": 1}):
+        raise HTTPException(404, "Nie znaleziono ścieżki.")
+    await db.roadmaps.update_many({"user_id": user.id}, {"$set": {"active": False}})
+    await db.roadmaps.update_one({"user_id": user.id, "path_id": path_id}, {"$set": {"active": True}})
+    return {"ok": True}
+
+
+@api.delete("/paths/{path_id}")
+async def delete_path(path_id: str, user: UserDoc = Depends(current_user)):
+    res = await db.roadmaps.delete_one({"user_id": user.id, "path_id": path_id})
+    if not res.deleted_count:
+        raise HTTPException(404, "Nie znaleziono ścieżki.")
+    if not await db.roadmaps.find_one({"user_id": user.id, "active": True}, {"_id": 1}):
+        newest = await db.roadmaps.find_one({"user_id": user.id}, {"_id": 1}, sort=[("created_at", -1)])
+        if newest:
+            await db.roadmaps.update_one({"_id": newest["_id"]}, {"$set": {"active": True}})
+    return {"ok": True}
+
+
 @api.delete("/roadmap")
 async def delete_roadmap(user: UserDoc = Depends(current_user)):
-    await db.roadmaps.delete_one({"user_id": user.id})
+    await db.roadmaps.delete_many({"user_id": user.id})
     return {"ok": True}
 
 
@@ -430,20 +527,22 @@ def locate_task(doc: dict, task_id: str):
 
 @api.patch("/roadmap/tasks/{task_id}")
 async def toggle_task(task_id: str, data: TaskToggle, user: UserDoc = Depends(current_user)):
-    doc = await db.roadmaps.find_one({"user_id": user.id})
-    if not doc:
-        raise HTTPException(404, "Brak ścieżki kariery.")
-    mi, ti, _, _ = locate_task(doc, task_id)
-    await db.roadmaps.update_one({"user_id": user.id}, {"$set": {f"milestones.{mi}.tasks.{ti}.done": data.done}})
+    res = await db.roadmaps.update_one(
+        {"user_id": user.id, "milestones.tasks.id": task_id},
+        {"$set": {"milestones.$[].tasks.$[t].done": data.done}},
+        array_filters=[{"t.id": task_id}],
+    )
+    if not res.matched_count:
+        raise HTTPException(404, "Nie znaleziono zadania.")
     return {"ok": True, "done": data.done}
 
 
 @api.get("/roadmap/tasks/{task_id}/resources")
 async def task_resources(task_id: str, user: UserDoc = Depends(current_user)):
-    doc = await db.roadmaps.find_one({"user_id": user.id})
+    doc = await db.roadmaps.find_one({"user_id": user.id, "milestones.tasks.id": task_id})
     if not doc:
-        raise HTTPException(404, "Brak ścieżki kariery.")
-    mi, ti, milestone, task = locate_task(doc, task_id)
+        raise HTTPException(404, "Nie znaleziono zadania.")
+    _, _, milestone, task = locate_task(doc, task_id)
     if task.get("resources"):
         return task["resources"]
     prof = await db.profiles.find_one({"user_id": user.id}) or {}
@@ -471,14 +570,163 @@ Podaj 5-8 zasobów, w tym przynajmniej jeden YouTube i jeden urzad_pracy."""
         raise HTTPException(502, "Nie udało się przygotować podpowiedzi. Spróbuj ponownie.")
     for r in data.get("resources", []):
         r["url"] = resource_url(r, city)
-    fresh = await db.roadmaps.find_one({"user_id": user.id})
-    if fresh:
-        try:
-            fmi, fti, _, _ = locate_task(fresh, task_id)
-            await db.roadmaps.update_one({"user_id": user.id}, {"$set": {f"milestones.{fmi}.tasks.{fti}.resources": data}})
-        except HTTPException:
-            pass
+    await db.roadmaps.update_one(
+        {"user_id": user.id, "milestones.tasks.id": task_id},
+        {"$set": {"milestones.$[].tasks.$[t].resources": data}},
+        array_filters=[{"t.id": task_id}],
+    )
     return data
+
+
+# ---------------------------------------------------------------- weekly study plan (premium)
+async def run_study_plan(user_id: str, path_id: str, job_id: str):
+    doc = await db.roadmaps.find_one({"user_id": user_id, "path_id": path_id})
+    prof = await db.profiles.find_one({"user_id": user_id}) or {}
+    answers = prof.get("answers", {})
+    todo = [f"- [{m['title']}] {t['title']}: {t['description']}" for m in doc.get("milestones", []) for t in m["tasks"] if not t.get("done")]
+    done = [t["title"] for m in doc.get("milestones", []) for t in m["tasks"] if t.get("done")]
+    prompt = f"""Ścieżka kariery: {doc['career']['title']}.
+Czas, który użytkownik może poświęcić na naukę: {answers.get('learn_time', 'nie podano')}. Obecna sytuacja: {answers.get('current_status', '')}.
+Już zdobyte: {', '.join(done) or 'nic'}.
+Do zdobycia (w kolejności drogi):
+{chr(10).join(todo[:20]) or '- wszystko zdobyte, zaplanuj szukanie pracy i rozwój'}
+
+Ułóż realistyczny plan nauki na 8 tygodni, skupiony na najbliższych punktach drogi. Każdy tydzień: cel i 3-5 konkretnych zadań z liczbą godzin.
+Uwzględnij darmowe materiały, kursy z urzędu pracy, ćwiczenia praktyczne i budowanie portfolio/CV.
+Zwróć JSON:
+{{"hours_per_week": liczba, "summary": "1-2 zdania",
+ "weeks": [{{"week": 1, "focus": "temat tygodnia", "goal": "co umiesz po tygodniu",
+            "items": [{{"title": "zadanie", "description": "1 zdanie jak to zrobić", "hours": liczba}}]}}],
+ "tips": ["3 rady motywacyjne/organizacyjne"]}}"""
+    try:
+        plan = await ask_llm(ANALYSIS_MODEL, SYSTEM_PL, prompt)
+        await db.roadmaps.update_one({"user_id": user_id, "path_id": path_id, "study_plan.job_id": job_id},
+                                     {"$set": {"study_plan.status": "ready", "study_plan.plan": plan, "study_plan.updated_at": now_iso()}})
+    except Exception as e:
+        logger.exception("study plan failed")
+        await db.roadmaps.update_one({"user_id": user_id, "path_id": path_id, "study_plan.job_id": job_id},
+                                     {"$set": {"study_plan.status": "error", "study_plan.error": str(e)[:200]}})
+
+
+@api.post("/roadmap/study-plan")
+async def create_study_plan(path_id: Optional[str] = None, user: UserDoc = Depends(current_user)):
+    if not is_premium(user):
+        raise HTTPException(402, "Plan nauki tydzień po tygodniu jest dostępny w Premium.")
+    doc = await get_path(user.id, path_id, {"_id": 0, "path_id": 1, "status": 1})
+    if not doc or doc["status"] != "ready":
+        raise HTTPException(400, "Najpierw wybierz ścieżkę i poczekaj, aż droga będzie gotowa.")
+    job_id = uuid.uuid4().hex
+    await db.roadmaps.update_one({"user_id": user.id, "path_id": doc["path_id"]},
+                                 {"$set": {"study_plan": {"status": "pending", "job_id": job_id, "started_at": now_iso()}}})
+    spawn(run_study_plan(user.id, doc["path_id"], job_id))
+    return {"status": "pending"}
+
+
+@api.get("/roadmap/study-plan")
+async def get_study_plan(path_id: Optional[str] = None, user: UserDoc = Depends(current_user)):
+    doc = await get_path(user.id, path_id, {"_id": 0, "study_plan": 1, "career": 1, "path_id": 1})
+    if not doc:
+        return {"status": "none"}
+    sp = doc.get("study_plan") or {"status": "none"}
+    if sp.get("status") == "pending" and datetime.now(timezone.utc) - datetime.fromisoformat(sp["started_at"]) > timedelta(minutes=4):
+        sp["status"] = "error"
+    return {"status": sp.get("status"), "plan": sp.get("plan"), "career": doc.get("career"), "path_id": doc["path_id"]}
+
+
+# ---------------------------------------------------------------- advisor chat
+class ChatIn(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+
+
+def today_start_iso() -> str:
+    return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+
+def today_key() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+async def chat_remaining(user: UserDoc) -> Optional[int]:
+    if is_premium(user):
+        return None
+    doc = await db.chat_usage.find_one({"user_id": user.id, "day": today_key()})
+    return max(FREE_CHAT_PER_DAY - (doc or {}).get("count", 0), 0)
+
+
+async def reserve_chat(user: UserDoc) -> Optional[int]:
+    """Atomically use one free question (separate from message history, so clearing chat does not reset it)."""
+    if is_premium(user):
+        return None
+    doc = await db.chat_usage.find_one_and_update(
+        {"user_id": user.id, "day": today_key()}, {"$inc": {"count": 1}}, upsert=True, return_document=True)
+    if doc["count"] > FREE_CHAT_PER_DAY:
+        await db.chat_usage.update_one({"_id": doc["_id"]}, {"$inc": {"count": -1}})
+        raise HTTPException(429, f"Wykorzystano {FREE_CHAT_PER_DAY} darmowych pytań na dziś. Wróć jutro lub przejdź na Premium.")
+    return FREE_CHAT_PER_DAY - doc["count"]
+
+
+async def refund_chat(user_id: str):
+    await db.chat_usage.update_one({"user_id": user_id, "day": today_key(), "count": {"$gt": 0}}, {"$inc": {"count": -1}})
+
+
+@api.get("/chat")
+async def chat_history(user: UserDoc = Depends(current_user)):
+    msgs = await db.chat_messages.find({"user_id": user.id}, {"_id": 0, "user_id": 0}).sort("created_at", -1).to_list(60)
+    return {"messages": list(reversed(msgs)), "remaining": await chat_remaining(user), "limit": FREE_CHAT_PER_DAY,
+            "is_premium": is_premium(user)}
+
+
+@api.delete("/chat")
+async def chat_clear(user: UserDoc = Depends(current_user)):
+    await db.chat_messages.delete_many({"user_id": user.id})
+    return {"ok": True}
+
+
+@api.post("/chat/stream")
+async def chat_stream(data: ChatIn, user: UserDoc = Depends(current_user)):
+    remaining = await reserve_chat(user)
+    prof = await db.profiles.find_one({"user_id": user.id}) or {}
+    path = await get_path(user.id, None, ROADMAP_PROJ)
+    path_txt = "Użytkownik nie wybrał jeszcze ścieżki kariery."
+    if path and path.get("milestones"):
+        lines = []
+        for m in path["milestones"]:
+            ts = ", ".join(f"{t['title']} ({'zdobyte' if t['done'] else 'do zrobienia'})" for t in m["tasks"])
+            lines.append(f"- {m['title']}: {ts}")
+        path_txt = f"Wybrana ścieżka: {path['career']['title']}\n" + "\n".join(lines)
+    history = await db.chat_messages.find({"user_id": user.id}, {"_id": 0}).sort("created_at", -1).to_list(12)
+    history_txt = "\n".join(f"{'Użytkownik' if h['role'] == 'user' else 'Doradca'}: {h['text']}" for h in reversed(history))
+    system = (
+        "Jesteś ciepłym, konkretnym doradcą zawodowym w aplikacji Reset, pomagającym ludziom zmienić zawód w Polsce. "
+        "Odpowiadasz po polsku, zwięźle (maks. ok. 150-200 słów), praktycznie, z konkretnymi krokami. "
+        "Pisz zwykłym tekstem bez markdown (bez **, # i tabel); listy zapisuj w nowych liniach zaczynając od '• '. Nie wymyślaj konkretnych adresów URL — zamiast tego podawaj frazy do wyszukania "
+        "lub nazwy serwisów (Pracuj.pl, OLX Praca, LinkedIn, YouTube, urząd pracy, praca.gov.pl).\n\n"
+        f"Profil użytkownika: {profile_text(prof.get('answers', {}))}\n\n{path_txt}"
+    )
+    prompt = (f"Dotychczasowa rozmowa:\n{history_txt}\n\n" if history_txt else "") + f"Nowe pytanie użytkownika: {data.text}"
+    await db.chat_messages.insert_one({"id": uuid.uuid4().hex, "user_id": user.id, "role": "user", "text": data.text, "created_at": now_iso()})
+
+    async def gen():
+        chat = LlmChat(api_key=LLM_KEY, session_id=str(uuid.uuid4()), system_message=system).with_model(*FAST_MODEL)
+        full = ""
+        try:
+            async for ev in chat.stream_message(UserMessage(text=prompt)):
+                if isinstance(ev, TextDelta):
+                    full += ev.content
+                    yield f"data: {json.dumps({'t': ev.content}, ensure_ascii=False)}\n\n"
+                elif isinstance(ev, StreamDone):
+                    break
+        except Exception:
+            logger.exception("chat failed")
+            yield f"data: {json.dumps({'error': 'Doradca chwilowo nie odpowiada. Spróbuj ponownie.'}, ensure_ascii=False)}\n\n"
+        if full:
+            await db.chat_messages.insert_one({"id": uuid.uuid4().hex, "user_id": user.id, "role": "assistant", "text": full, "created_at": now_iso()})
+        elif remaining is not None:
+            await refund_chat(user.id)
+        left = remaining if full or remaining is None else remaining + 1
+        yield f"data: {json.dumps({'done': True, 'remaining': left})}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 app.include_router(api)
@@ -488,6 +736,10 @@ app.add_middleware(CORSMiddleware, allow_credentials=False, allow_origins=["*"],
 @app.on_event("startup")
 async def startup():
     await db.users.create_index("email", unique=True)
+    await db.chat_messages.create_index([("user_id", 1), ("created_at", -1)])
+    await db.chat_usage.create_index([("user_id", 1), ("day", 1)], unique=True)
+    async for d in db.roadmaps.find({"path_id": {"$exists": False}}, {"_id": 1}):
+        await db.roadmaps.update_one({"_id": d["_id"]}, {"$set": {"path_id": uuid.uuid4().hex[:12], "active": True}})
     email = os.environ.get("ADMIN_EMAIL")
     pw = os.environ.get("ADMIN_PASSWORD")
     if email and pw and not await db.users.find_one({"email": email}):

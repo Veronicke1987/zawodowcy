@@ -2,13 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { ActivityIndicator, RefreshControl, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, Milestone, Roadmap, Task } from "@/src/api";
+import { api, Milestone, PathsResponse, Roadmap, Task } from "@/src/api";
+import { useAuth } from "@/src/auth";
 import { milestoneDone, RoadMap } from "@/src/components/RoadMap";
 import { MilestoneSheet, TaskSheet } from "@/src/components/TaskSheet";
-import { Button, ErrorBox, Ionicons, Txt } from "@/src/components/ui";
+import { Button, ErrorBox, IconButton, Ionicons, Txt } from "@/src/components/ui";
 import { usesNativeTabs } from "@/src/navigation";
 import { queryClient } from "@/src/query-client";
 import { playSuccess } from "@/src/sound";
@@ -20,6 +21,7 @@ export default function RoadScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
   const router = useRouter();
+  const { user } = useAuth();
   const [taskId, setTaskId] = useState<string | null>(null);
   const [ms, setMs] = useState<{ m: Milestone; i: number } | null>(null);
 
@@ -28,6 +30,27 @@ export default function RoadScreen() {
     queryFn: () => api<Roadmap>("/roadmap"),
     refetchInterval: (query) => (query.state.data?.status === "pending" ? 3000 : false),
   });
+  const paths = useQuery({ queryKey: ["paths", q.data?.status, q.data?.path_id], queryFn: () => api<PathsResponse>("/paths") });
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const refreshAll = () => {
+    queryClient.invalidateQueries({ queryKey: ["roadmap"] });
+    queryClient.invalidateQueries({ queryKey: ["paths"] });
+    queryClient.invalidateQueries({ queryKey: ["study-plan"] });
+  };
+  const switchPath = async (pathId: string) => {
+    if (pathId === q.data?.path_id) return;
+    await api(`/paths/${pathId}/activate`, { method: "POST" }).catch(() => {});
+    refreshAll();
+  };
+  const deletePath = async () => {
+    setDeleting(true);
+    await api(`/paths/${q.data?.path_id}`, { method: "DELETE" }).catch(() => {});
+    setDeleting(false);
+    setConfirmDelete(false);
+    refreshAll();
+  };
   const data = q.data;
   const milestones = data?.milestones || [];
   const allTasks = milestones.flatMap((m) => m.tasks);
@@ -51,6 +74,7 @@ export default function RoadScreen() {
     else Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     try {
       await api(`/roadmap/tasks/${t.id}`, { method: "PATCH", body: { done: next } });
+      queryClient.invalidateQueries({ queryKey: ["paths"] });
     } catch {
       queryClient.setQueryData(["roadmap"], prev);
     }
@@ -59,10 +83,17 @@ export default function RoadScreen() {
   return (
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + spacing.lg }]}>
-        <Txt variant="caption">TWOJA DROGA</Txt>
-        <Txt variant="title" numberOfLines={2} testID="road-career-title">
-          {data?.career?.title || "Ścieżka kariery"}
-        </Txt>
+        <View style={styles.titleRow}>
+          <View style={{ flex: 1, gap: spacing.xs }}>
+            <Txt variant="caption">TWOJA DROGA</Txt>
+            <Txt variant="title" numberOfLines={2} testID="road-career-title">
+              {data?.career?.title || "Ścieżka kariery"}
+            </Txt>
+          </View>
+          {data?.path_id && (paths.data?.paths.length ?? 0) > 1 ? (
+            <IconButton testID="road-delete-path" icon="trash-outline" onPress={() => setConfirmDelete(true)} />
+          ) : null}
+        </View>
         {data?.status === "ready" ? (
           <View style={styles.progressRow}>
             <View style={styles.track}>
@@ -74,6 +105,40 @@ export default function RoadScreen() {
           </View>
         ) : null}
       </View>
+      {data && data.status !== "none" ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow} contentContainerStyle={styles.chipContent}>
+          <Pressable testID="road-open-chat" onPress={() => router.push("/chat")} style={[styles.action, { backgroundColor: colors.brandPrimary }]}>
+            <Ionicons name="chatbubbles" size={16} color={colors.onBrandPrimary} />
+            <Text style={[styles.actionText, { color: colors.onBrandPrimary }]}>Doradca</Text>
+          </Pressable>
+          <Pressable testID="road-open-plan" onPress={() => router.push("/plan")} style={styles.action}>
+            <Ionicons name="calendar-outline" size={16} color={colors.onSurface} />
+            <Text style={styles.actionText}>Plan nauki</Text>
+            {!user?.is_premium ? <Ionicons name="diamond" size={12} color={colors.brandPrimary} /> : null}
+          </Pressable>
+          {(paths.data?.paths || []).map((p) => (
+            <Pressable
+              key={p.path_id}
+              testID={`road-path-${p.path_id}`}
+              onPress={() => switchPath(p.path_id)}
+              style={[styles.action, p.path_id === data.path_id && { borderColor: colors.brandPrimary, backgroundColor: colors.brandTertiary }]}
+            >
+              <Text numberOfLines={1} style={[styles.actionText, { maxWidth: 160 }, p.path_id === data.path_id && { color: colors.onBrandTertiary }]}>
+                {p.title}
+              </Text>
+              <Text style={styles.actionSub}>{p.progress}%</Text>
+            </Pressable>
+          ))}
+          <Pressable
+            testID="road-add-path"
+            onPress={() => (user?.is_premium ? router.navigate("/(tabs)") : router.push("/premium"))}
+            style={[styles.action, { borderStyle: "dashed" }]}
+          >
+            <Ionicons name="add" size={16} color={colors.onSurface} />
+            <Text style={styles.actionText}>Dodaj ścieżkę</Text>
+          </Pressable>
+        </ScrollView>
+      ) : null}
 
       {q.isLoading ? (
         <ActivityIndicator style={{ marginTop: spacing.xxl }} color={colors.brandPrimary} />
@@ -108,7 +173,7 @@ export default function RoadScreen() {
         <ScrollView
           testID="road-scroll"
           contentContainerStyle={{ paddingHorizontal: spacing.md, paddingBottom: bottomChrome + spacing.xl }}
-          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => q.refetch()} tintColor={colors.brandPrimary} />}
+          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); }} tintColor={colors.brandPrimary} />}
         >
           <View style={styles.hint}>
             <Ionicons name="information-circle-outline" size={18} color={colors.muted} />
@@ -125,13 +190,42 @@ export default function RoadScreen() {
         onTask={(t) => setTaskId(t.id)}
       />
       <TaskSheet task={currentTask} onClose={() => setTaskId(null)} onToggle={toggle} />
+      <Modal visible={confirmDelete} transparent animationType="fade" onRequestClose={() => setConfirmDelete(false)}>
+        <View style={styles.overlay}>
+          <View style={styles.dialog} testID="road-delete-dialog">
+            <Txt variant="heading">Usunąć tę ścieżkę?</Txt>
+            <Txt>„{data?.career?.title}” i postęp na tej drodze zostaną usunięte.</Txt>
+            <Button testID="road-delete-confirm" title="Usuń ścieżkę" onPress={deletePath} loading={deleting} />
+            <Button testID="road-delete-cancel" title="Anuluj" variant="ghost" onPress={() => setConfirmDelete(false)} />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surface },
-  header: { paddingHorizontal: spacing.xl, paddingBottom: spacing.md, gap: spacing.xs, borderBottomWidth: 1, borderBottomColor: c.divider },
+  header: { paddingHorizontal: spacing.xl, paddingBottom: spacing.sm, gap: spacing.xs },
+  titleRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
+  chipRow: { flexGrow: 0, flexShrink: 0, minHeight: 56, height: 56, borderBottomWidth: 1, borderBottomColor: c.divider },
+  chipContent: { paddingHorizontal: spacing.xl, gap: spacing.sm, alignItems: "center" },
+  action: {
+    height: 36,
+    flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.pill,
+    borderWidth: 1.5,
+    borderColor: c.border,
+    backgroundColor: c.surfaceSecondary,
+  },
+  actionText: { fontFamily: fonts.semibold, fontSize: 13, color: c.onSurface },
+  actionSub: { fontFamily: fonts.bold, fontSize: 11, color: c.muted },
+  overlay: { flex: 1, backgroundColor: c.overlay, alignItems: "center", justifyContent: "center", padding: spacing.xl },
+  dialog: { width: "100%", backgroundColor: c.surface, borderRadius: radius.lg, padding: spacing.xl, gap: spacing.md },
   progressRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginTop: spacing.sm },
   track: { flex: 1, height: 10, borderRadius: radius.pill, backgroundColor: c.surfaceTertiary, overflow: "hidden" },
   bar: { height: 10, borderRadius: radius.pill, backgroundColor: c.brandPrimary },

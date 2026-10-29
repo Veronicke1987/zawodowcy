@@ -53,6 +53,19 @@ export default function Profile() {
         </View>
 
         <View style={{ gap: spacing.md }}>
+          <Txt variant="heading">Premium i doradca</Txt>
+          <Row
+            icon="diamond-outline"
+            title={user?.is_premium ? "Masz Premium" : "Reset Premium"}
+            subtitle={user?.is_premium ? "Zarządzaj subskrypcją" : "Do 3 ścieżek, plan nauki, czat bez limitu"}
+            testID="profile-premium"
+            onPress={() => router.push("/premium")}
+          />
+          <Row icon="chatbubbles-outline" title="Doradca kariery" subtitle="Zapytaj AI o swoją ścieżkę" testID="profile-chat" onPress={() => router.push("/chat")} />
+          <Row icon="calendar-outline" title="Plan nauki" subtitle="Tydzień po tygodniu" testID="profile-plan" onPress={() => router.push("/plan")} />
+        </View>
+
+        <View style={{ gap: spacing.md }}>
           <Txt variant="heading">Styl aplikacji</Txt>
           {(Object.keys(themes) as ThemeName[]).map((t) => {
             const tc = themes[t];

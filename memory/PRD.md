@@ -16,6 +16,12 @@ Aplikacja na Sklep Play "Reset" do przebranżowienia / wyboru ścieżki zawodowe
 ## Implemented (2026-06)
 - Auth JWT, admin seed, ankieta, propozycje AI, opis zawodu + linki do ofert, wybór ścieżki z dźwiękiem i animacją, droga z punktami i odhaczaniem, arkusz podpowiedzi z linkami, przełącznik motywów. Testy: iteracja 1 i 2 zaliczone.
 
+## Iteration 2 (2026-06)
+- Czat „Doradca kariery” (GPT 6 Luna, streaming SSE), 5 darmowych pytań/dzień (licznik w chat_usage, nie resetuje się po czyszczeniu czatu), Premium bez limitu
+- Premium w trybie DEMO (19,99 zł/mies., 149,99 zł/rok): do 3 ścieżek naraz (darmowo 1), 8-tygodniowy plan nauki (Claude Sonnet 5.5)
+- Wiele ścieżek: /api/paths, przełączanie, usuwanie; ekrany /chat, /premium, /plan. Testy: iteracja 3 zaliczona + poprawki
+
 ## Backlog
+- P0: Prawdziwe płatności (subskrypcja Google Play) zamiast trybu demo
 - P1: Udostępnianie postępu / drogi, przypomnienia o nauce, kilka ścieżek równolegle
 - P2: Prawdziwe oferty pracy na żywo, plan premium, edycja profilu (imię)

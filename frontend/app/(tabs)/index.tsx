@@ -6,7 +6,7 @@ import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withRepeat, wit
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, Career, Recommendations } from "@/src/api";
-import { Badge, Button, ErrorBox, Ionicons, PressableScale, Txt } from "@/src/components/ui";
+import { Badge, Button, ErrorBox, IconButton, Ionicons, PressableScale, Txt } from "@/src/components/ui";
 import { usesNativeTabs } from "@/src/navigation";
 import { queryClient } from "@/src/query-client";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
@@ -36,8 +36,13 @@ export default function Matches() {
   return (
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + spacing.lg }]}>
-        <Txt variant="caption">TWOJE DOPASOWANIA</Txt>
-        <Txt variant="title">Zawody dla Ciebie</Txt>
+        <View style={styles.titleRow}>
+          <View style={{ flex: 1, gap: spacing.xs }}>
+            <Txt variant="caption">TWOJE DOPASOWANIA</Txt>
+            <Txt variant="title">Zawody dla Ciebie</Txt>
+          </View>
+          <IconButton testID="matches-open-chat" icon="chatbubbles-outline" onPress={() => router.push("/chat")} />
+        </View>
         <View style={styles.segment}>
           {(
             [
@@ -79,7 +84,7 @@ export default function Matches() {
           data={list}
           keyExtractor={(i) => i.id}
           contentContainerStyle={{ padding: spacing.xl, paddingTop: spacing.sm, gap: spacing.md, paddingBottom: bottomChrome + spacing.xl }}
-          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => q.refetch()} tintColor={colors.brandPrimary} />}
+          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); }} tintColor={colors.brandPrimary} />}
           ListHeaderComponent={
             <View style={{ gap: spacing.md, marginBottom: spacing.xs }}>
               {data?.summary && tab === "now" ? (
@@ -161,6 +166,7 @@ function Analyzing() {
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surface },
   header: { paddingHorizontal: spacing.xl, paddingBottom: spacing.md, gap: spacing.xs, backgroundColor: c.surface },
+  titleRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   segment: { flexDirection: "row", backgroundColor: c.surfaceTertiary, borderRadius: radius.pill, padding: 4, marginTop: spacing.md },
   segBtn: { flex: 1, height: 44, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6 },
   segText: { fontFamily: fonts.bold, fontSize: 14 },

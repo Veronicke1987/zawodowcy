@@ -33,6 +33,64 @@ export async function api<T = any>(path: string, init: { method?: string; body?:
   return data as T;
 }
 
+// Server-Sent-Events streaming (expo/fetch supports response.body streaming on native and web).
+export async function streamChat(
+  text: string,
+  onDelta: (t: string) => void,
+): Promise<{ remaining: number | null; error?: string }> {
+  const { fetch: expoFetch } = await import("expo/fetch");
+  const token = await storage.secureGet(TOKEN_KEY, null);
+  let res: Awaited<ReturnType<typeof expoFetch>>;
+  try {
+    res = await expoFetch(`${BASE}/chat/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, Accept: "text/event-stream" },
+      body: JSON.stringify({ text }),
+    });
+  } catch {
+    throw new ApiError("Brak połączenia z internetem. Sprawdź sieć i spróbuj ponownie.", 0);
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(typeof data?.detail === "string" ? data.detail : "Coś poszło nie tak.", res.status);
+  }
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let result: { remaining: number | null; error?: string } = { remaining: null };
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const parts = buf.split("\n\n");
+    buf = parts.pop() || "";
+    for (const p of parts) {
+      const line = p.trim();
+      if (!line.startsWith("data:")) continue;
+      const ev = JSON.parse(line.slice(5).trim());
+      if (ev.t) onDelta(ev.t);
+      if (ev.error) result.error = ev.error;
+      if (ev.done) result = { ...result, remaining: ev.remaining ?? null };
+    }
+  }
+  return result;
+}
+
+export type PathSummary = { path_id: string; title: string; status: string; active: boolean; progress: number };
+export type PathsResponse = { paths: PathSummary[]; limit: number; is_premium: boolean };
+
+export type StudyPlan = {
+  status: "none" | "pending" | "ready" | "error";
+  path_id?: string;
+  career?: Career;
+  plan?: {
+    hours_per_week: number;
+    summary: string;
+    weeks: { week: number; focus: string; goal: string; items: { title: string; description: string; hours: number }[] }[];
+    tips: string[];
+  };
+};
+
 export type Career = {
   id: string;
   title: string;
@@ -64,7 +122,7 @@ export type Milestone = {
   requirements?: string[];
   tasks: Task[];
 };
-export type Roadmap = { status: "none" | "pending" | "ready" | "error"; career?: Career; milestones?: Milestone[] };
+export type Roadmap = { status: "none" | "pending" | "ready" | "error"; path_id?: string; career?: Career; milestones?: Milestone[] };
 
 export type Resource = { type: string; platform?: string; title: string; description: string; url: string };
 export type TaskResources = {

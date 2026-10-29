@@ -1,0 +1,53 @@
+{
+  "summary": "Iteration 3: Premium (DEMO), the 'Doradca kariery' chat (SSE plus daily limit), multiple career paths and the weekly study plan. Backend: 15/15 feature tests pass, covering premium subscribe/cancel and is_premium, SSE format, 5 questions/day then 429, premium remaining=null, free user path replace, premium 3-path limit then 403, re-activating an existing path, activate/delete/GET by path_id, PATCH on a non-active path, study plan 402 for free users and pending->ready (8 weeks) for premium. An additional regression test FAILS: DELETE /api/chat resets the free daily quota. Frontend (375x667): login, Droga chips, chat streaming and counter, limit card and 'Zobacz Premium', /premium activate and 'Wyłącz Premium', /plan upsell and create (8 weeks) and accordion, add/switch/delete path dialog, 403 with 'Zarządzaj ścieżkami', the 'Zastąpi to ścieżkę…' notice, and the profile and header chat entry points all work. UI bugs: the Droga chip row is squashed to about 10px, and chat answers show raw markdown. Deprecated API: expo-router/unstable-native-tabs.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "DELETE /api/chat + POST /api/chat/stream", "issue": "Free users can bypass the 5 questions/day limit. chat_remaining() counts chat_messages rows with role=user from today, and DELETE /api/chat hard-deletes those rows, so clearing history resets remaining to 5. Reproduced: 5 questions, then 429, then DELETE /chat, then GET /chat shows remaining=5. The chat screen trash button (chat-clear-button) lets any user do this.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/chat/stream", "issue": "The user message is inserted before the LLM call, so a failed stream (error event) still uses up a free question."},
+      {"endpoint": "POST /api/chat/stream", "issue": "The limit check and the insert are not atomic. Parallel requests can go over 5 per day."},
+      {"endpoint": "POST /api/roadmap", "issue": "Paths with status=error count toward the premium limit of 3 (len(existing) includes them)."},
+      {"endpoint": "POST /api/premium/cancel", "issue": "After downgrading, the user keeps up to 3 paths. The next new path silently deletes ALL of them (delete_many), but the career detail notice only names one path ('Zastąpi to ścieżkę X')."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Droga tab chip row (road.tsx styles.chipRow)", "issue": "The horizontal ScrollView is squashed to about 9-10px instead of 56px: its computed flexShrink is 1 and it is crushed by the road-scroll below. Only a thin slice of the Doradca / Plan nauki / path chips shows under the progress bar, so the chips are mostly unreadable. Taps work only because the automation uses force clicks. Fix: add flexShrink: 0 (and/or minHeight: 56) to chipRow. Reference: /app/frontend/app/(tabs)/road.tsx:213", "testID": "road-open-chat, road-open-plan, road-path-*, road-add-path", "priority": "HIGH"},
+      {"component": "Chat assistant bubble", "issue": "LLM answers contain markdown (**bold**, numbered lists) that is shown as raw asterisks. Either render markdown (e.g. react-native-markdown-display) or tell the model in the system prompt not to use markdown. Reference: /app/frontend/app/chat.tsx:119, /app/backend/server.py:680", "testID": "chat-msg-assistant", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "Dodaj ścieżkę as a premium user with 3/3 paths", "issue": "It routes to /premium, which only says 'Masz aktywne Premium'. This is confusing; it should explain the 3-path limit or open path management.", "affected_testIDs": ["road-add-path"]},
+      {"flow": "streamChat result", "issue": "The default result is {remaining: null}. If the stream ends without a done event, a free user's header switches to 'Premium · bez limitu'. Reference: /app/frontend/src/api.ts:60", "affected_testIDs": ["chat-remaining"]}
+    ],
+    "design_issues": [
+      {"screen": "Droga / Chat", "issues": ["Chips (road chip row, chat-suggestion-*) are 36px tall, below the 44px touch target", "There is no confirmation before chat-clear-button deletes the whole history or before premium-cancel-button"]}
+    ],
+    "react_native_issues": [
+      {"component": "expo-router/unstable-native-tabs", "issue": "Deprecated import (Metro warns: use expo-router/native-tabs). Reference: /app/frontend/app/(tabs)/_layout.tsx:3"}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_reset_iter3_premium_chat_paths.py", "/app/backend/tests/test_reset_iter3_chat_quota_bypass.py", "/app/test_reports/pytest/iter3_results.xml"],
+  "action_items": [
+    "HIGH: Stop the chat quota from resetting when history is cleared. Track usage separately (e.g. a chat_usage {user_id, date, count} doc updated with $inc) or soft-delete messages (a hidden flag) and keep counting them.",
+    "HIGH: road.tsx chipRow: add flexShrink: 0 / minHeight: 56 so the chip row is not squashed.",
+    "MEDIUM: Render markdown in chat bubbles, or tell GPT not to use markdown.",
+    "Change the import from expo-router/unstable-native-tabs to expo-router/native-tabs in app/(tabs)/_layout.tsx.",
+    "Minor: do not use up quota when the LLM stream fails; make the limit check atomic; exclude error paths from the 3-path limit; list all paths that will be replaced when a downgraded user picks a new path; handle the premium 3/3 'Dodaj ścieżkę' case; make chips 44px tall; add confirmation before clearing chat and cancelling premium.",
+    "Code size: server.py is 728 lines (>700). Split it into routers (auth, recommendations, roadmap, premium, chat)."
+  ],
+  "critical_code_review_comments": [
+    "server.py:647/660 - the quota is derived from deletable message rows, which allows the bypass",
+    "server.py:688 - the user message is persisted before the LLM succeeds",
+    "server.py:452-461 - existing paths include status=error ones when counting the premium limit",
+    "server.py:459 - a free user choosing a new career runs delete_many on all paths, including ones kept from a cancelled premium",
+    "chat.tsx:75 clear() has no error handling and no confirmation"
+  ],
+  "updated_files": ["/app/backend/tests/test_reset_iter3_premium_chat_paths.py", "/app/backend/tests/test_reset_iter3_chat_quota_bypass.py"],
+  "success_rate": {"backend": "94% (15/16, including the quota-bypass regression)", "frontend": "90% (all flows work; chip-row layout bug, raw markdown)"},
+  "seed_data_creation": "Created test users test_ui_fresh@test.pl and test_ui_lim@test.pl (password test123; lim has used 5/5 chat today), plus pytest users test_iter3_*@test.pl and test_q_*@test.pl. ania_t1 is back to FREE with 1 original path (7b53b51e2724, 24%); a study plan was generated on that path; ania has used 2/5 chat questions today.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "pytest.ini forces xdist -n 2 --dist loadscope. The iter3 suite shares state across classes, so run it with -n 0. The auth screen opens in 'Rejestracja' mode; tap the text 'Logowanie' first. Premium is DEMO: subscribe/cancel through the API to toggle state. Career detail /career/87fa14ac1a44 for ania is already cached. LLM roadmaps and study plans take about 30-60s.",
+  "rca_of_issue": "Chat quota bypass: the remaining count = FREE_CHAT_PER_DAY - count(chat_messages role=user today); DELETE /api/chat runs delete_many on those docs, so the count goes back to 0. Chip row: in RN-web the horizontal ScrollView gets flexShrink:1, and inside the flex:1 column, with a flex ScrollView below, its height:56 collapses to about 10px."
+}

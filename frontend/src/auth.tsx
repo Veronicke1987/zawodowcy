@@ -4,7 +4,7 @@ import { api, TOKEN_KEY } from "@/src/api";
 import { queryClient } from "@/src/query-client";
 import { storage } from "@/src/utils/storage";
 
-export type User = { id: string; email: string; name: string; role: string; has_profile: boolean };
+export type User = { id: string; email: string; name: string; role: string; has_profile: boolean; is_premium: boolean };
 
 type AuthCtx = {
   user: User | null;
