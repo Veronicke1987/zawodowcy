@@ -1,5 +1,3 @@
-import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
@@ -8,10 +6,9 @@ import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth";
+import { AuthHero } from "@/src/components/AuthHero";
 import { Button, ErrorBox, Ionicons, Txt } from "@/src/components/ui";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
-
-const HERO = "https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=1200&q=80";
 
 const FEATURES = [
   { icon: "briefcase", text: "Zawody dopasowane do Ciebie" },
@@ -56,18 +53,7 @@ export default function AuthScreen() {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingBottom: insets.bottom + spacing.xl }}
       >
-        <View style={styles.hero}>
-          <Image source={{ uri: HERO }} style={{ flex: 1 }} contentFit="cover" transition={300} />
-          <LinearGradient colors={["rgba(0,0,0,0.55)", "rgba(0,0,0,0.15)", colors.surface]} style={styles.scrim} />
-          <View style={[styles.heroText, { paddingTop: insets.top + spacing.lg }]}>
-            <Text style={styles.logo} testID="app-logo">
-              reset<Text style={{ color: colors.brandPrimary }}>.</Text>
-            </Text>
-            <Text style={styles.tagline} testID="app-tagline">
-              Zmiana zawodu i nowa ścieżka kariery
-            </Text>
-          </View>
-        </View>
+        <AuthHero topInset={insets.top} />
         <Animated.View entering={FadeInDown.duration(500)} style={styles.body}>
           <Txt variant="display">{mode === "login" ? "Witaj z powrotem" : "Znajdź zawód dla siebie"}</Txt>
           <Txt style={{ marginTop: spacing.sm }}>
@@ -155,15 +141,10 @@ function Field({ label, ...props }: React.ComponentProps<typeof TextInput> & { l
 
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surface },
-  hero: { height: 260 },
-  scrim: { position: "absolute", left: 0, right: 0, bottom: 0, top: 0 },
-  tagline: { fontFamily: fonts.semibold, fontSize: 15, color: "#FFFFFF", marginTop: 2 },
   feature: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   featureIcon: { width: 32, height: 32, borderRadius: radius.sm, backgroundColor: c.brandTertiary, alignItems: "center", justifyContent: "center" },
   featureText: { fontFamily: fonts.semibold, fontSize: 14, color: c.onSurface },
-  heroText: { position: "absolute", left: spacing.xl, top: 0 },
-  logo: { fontFamily: fonts.extrabold, fontSize: 34, color: "#FFFFFF", letterSpacing: -1 },
-  body: { paddingHorizontal: spacing.xl, gap: spacing.lg, marginTop: -spacing.xl },
+  body: { paddingHorizontal: spacing.xl, gap: spacing.lg, marginTop: spacing.xl },
   segment: { flexDirection: "row", backgroundColor: c.surfaceTertiary, borderRadius: radius.pill, padding: 4, marginTop: spacing.sm },
   segBtn: { flex: 1, height: 44, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
   segText: { fontFamily: fonts.bold, fontSize: 14 },

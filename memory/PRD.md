@@ -35,6 +35,9 @@ Aplikacja na Sklep Play "Reset" do przebranżowienia / wyboru ścieżki zawodowe
 ## Iteration 6 (2026-06)
 - AI na własnym kluczu Anthropic użytkowniczki (ANTHROPIC_API_KEY): Claude Sonnet 5.5 (propozycje, droga, plan nauki) + Claude Haiku 5.5 (opisy, podpowiedzi, czat); max_tokens=16000
 
+## Iteration 7 (2026-06)
+- Ekran logowania: zamiast zdjęcia nowoczesna grafika w kolorach motywu (gradient marki + pływające karty: dopasowany zawód 92%, „Kurs Excela”, „Awans: kierownik”), dopasowuje się do 3 stylów
+
 ## Backlog
 - P0: Prawdziwe płatności (subskrypcja Google Play) zamiast trybu demo
 - P1: Udostępnianie postępu / drogi, przypomnienia o nauce, kilka ścieżek równolegle
