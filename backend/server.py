@@ -401,6 +401,7 @@ Opisz ten zawód na podstawie typowych ofert pracy w Polsce (Pracuj.pl, OLX, Lin
 # ---------------------------------------------------------------- premium (demo mode, no real payments yet)
 PREMIUM_PATH_LIMIT = 3
 FREE_CHAT_PER_DAY = 5
+PREMIUM_CHAT_PER_DAY = 10
 PREMIUM_PLANS = {
     "monthly": {"label": "Miesięczny", "price": "19,99 zł", "period": "miesiąc"},
     "yearly": {"label": "Roczny", "price": "149,99 zł", "period": "rok"},
@@ -418,7 +419,8 @@ def is_premium(u: UserDoc) -> bool:
 @api.get("/premium")
 async def premium_info(user: UserDoc = Depends(current_user)):
     return {"is_premium": is_premium(user), "premium": user.premium, "plans": PREMIUM_PLANS,
-            "path_limit": PREMIUM_PATH_LIMIT, "free_chat_per_day": FREE_CHAT_PER_DAY, "demo": True}
+            "path_limit": PREMIUM_PATH_LIMIT, "free_chat_per_day": FREE_CHAT_PER_DAY,
+            "premium_chat_per_day": PREMIUM_CHAT_PER_DAY, "demo": True}
 
 
 @api.post("/premium/subscribe")
@@ -677,23 +679,27 @@ def today_key() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
-async def chat_remaining(user: UserDoc) -> Optional[int]:
-    if is_premium(user):
-        return None
+def chat_limit_for(user: UserDoc) -> int:
+    return PREMIUM_CHAT_PER_DAY if is_premium(user) else FREE_CHAT_PER_DAY
+
+
+async def chat_remaining(user: UserDoc) -> int:
+    limit = chat_limit_for(user)
     doc = await db.chat_usage.find_one({"user_id": user.id, "day": today_key()})
-    return max(FREE_CHAT_PER_DAY - (doc or {}).get("count", 0), 0)
+    return max(limit - (doc or {}).get("count", 0), 0)
 
 
-async def reserve_chat(user: UserDoc) -> Optional[int]:
-    """Atomically use one free question (separate from message history, so clearing chat does not reset it)."""
-    if is_premium(user):
-        return None
+async def reserve_chat(user: UserDoc) -> int:
+    """Atomically use one question of the day's quota (separate from message history, so clearing chat does not reset it)."""
+    limit = chat_limit_for(user)
     doc = await db.chat_usage.find_one_and_update(
         {"user_id": user.id, "day": today_key()}, {"$inc": {"count": 1}}, upsert=True, return_document=True)
-    if doc["count"] > FREE_CHAT_PER_DAY:
+    if doc["count"] > limit:
         await db.chat_usage.update_one({"_id": doc["_id"]}, {"$inc": {"count": -1}})
-        raise HTTPException(429, f"Wykorzystano {FREE_CHAT_PER_DAY} darmowych pytań na dziś. Wróć jutro lub przejdź na Premium.")
-    return FREE_CHAT_PER_DAY - doc["count"]
+        msg = (f"Wykorzystano {limit} pytań na dziś w Premium. Wróć jutro." if is_premium(user)
+               else f"Wykorzystano {limit} darmowych pytań na dziś. Wróć jutro lub przejdź na Premium.")
+        raise HTTPException(429, msg)
+    return limit - doc["count"]
 
 
 async def refund_chat(user_id: str):
@@ -703,7 +709,7 @@ async def refund_chat(user_id: str):
 @api.get("/chat")
 async def chat_history(user: UserDoc = Depends(current_user)):
     msgs = await db.chat_messages.find({"user_id": user.id}, {"_id": 0, "user_id": 0}).sort("created_at", -1).to_list(60)
-    return {"messages": list(reversed(msgs)), "remaining": await chat_remaining(user), "limit": FREE_CHAT_PER_DAY,
+    return {"messages": list(reversed(msgs)), "remaining": await chat_remaining(user), "limit": chat_limit_for(user),
             "is_premium": is_premium(user)}
 
 
@@ -752,9 +758,9 @@ async def chat_stream(data: ChatIn, user: UserDoc = Depends(current_user)):
             yield f"data: {json.dumps({'error': 'Doradca chwilowo nie odpowiada. Spróbuj ponownie.'}, ensure_ascii=False)}\n\n"
         if full:
             await db.chat_messages.insert_one({"id": uuid.uuid4().hex, "user_id": user.id, "role": "assistant", "text": full, "created_at": now_iso()})
-        elif remaining is not None:
+        else:
             await refund_chat(user.id)
-        left = remaining if full or remaining is None else remaining + 1
+        left = remaining if full else remaining + 1
         yield f"data: {json.dumps({'done': True, 'remaining': left})}\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

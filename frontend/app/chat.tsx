@@ -10,7 +10,7 @@ import { Button, IconButton, Ionicons, Txt } from "@/src/components/ui";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 type Msg = { id: string; role: "user" | "assistant"; text: string };
-type ChatData = { messages: Msg[]; remaining: number | null; limit: number; is_premium: boolean };
+type ChatData = { messages: Msg[]; remaining: number; limit: number; is_premium: boolean };
 
 const SUGGESTIONS = [
   "Od czego zacząć w tym tygodniu?",
@@ -28,6 +28,8 @@ export default function Chat() {
   const listRef = useRef<FlatList<Msg>>(null);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [remaining, setRemaining] = useState<number | null>(null);
+  const [limit, setLimit] = useState<number | null>(null);
+  const [isPremium, setIsPremium] = useState(false);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -38,6 +40,8 @@ export default function Chat() {
     if (q.data) {
       setMsgs(q.data.messages.map((m) => ({ ...m, id: m.id || Math.random().toString() })));
       setRemaining(q.data.remaining);
+      setLimit(q.data.limit);
+      setIsPremium(q.data.is_premium);
       setLimitHit(q.data.remaining === 0);
     }
   }, [q.data]);
@@ -84,7 +88,7 @@ export default function Chat() {
         <View style={{ flex: 1 }}>
           <Txt variant="heading">Doradca kariery</Txt>
           <Txt variant="caption" testID="chat-remaining">
-            {remaining === null ? "Premium · bez limitu" : `Darmowe pytania dziś: ${remaining}`}
+            {isPremium ? `Premium · pozostało dziś: ${remaining ?? limit ?? ""}` : `Darmowe pytania dziś: ${remaining ?? ""}`}
           </Txt>
         </View>
         {msgs.length ? <IconButton testID="chat-clear-button" icon="trash-outline" onPress={clear} /> : null}
@@ -127,9 +131,13 @@ export default function Chat() {
 
         {limitHit ? (
           <View style={styles.limit} testID="chat-limit">
-            <Txt variant="label">Wykorzystano darmowe pytania na dziś</Txt>
-            <Txt variant="caption">Wróć jutro albo odblokuj nielimitowane rozmowy w Premium.</Txt>
-            <Button testID="chat-go-premium" title="Zobacz Premium" icon="diamond" onPress={() => router.push("/premium")} />
+            <Txt variant="label">
+              {isPremium ? "Wykorzystano dzisiejszy limit Premium" : "Wykorzystano darmowe pytania na dziś"}
+            </Txt>
+            <Txt variant="caption">
+              {isPremium ? "Wróć jutro — limit odnawia się codziennie." : "Wróć jutro albo odblokuj więcej pytań dziennie w Premium."}
+            </Txt>
+            {!isPremium ? <Button testID="chat-go-premium" title="Zobacz Premium" icon="diamond" onPress={() => router.push("/premium")} /> : null}
           </View>
         ) : (
           <>

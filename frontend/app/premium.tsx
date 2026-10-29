@@ -20,7 +20,7 @@ const PLANS = [
 const PERKS: { icon: IconName; title: string; text: string }[] = [
   { icon: "eye-off", title: "Bez reklam", text: "Żadnych reklam przy ścieżkach, planie nauki ani w trakcie korzystania." },
   { icon: "flash", title: "Wszystko od razu", text: "Ścieżki kariery i plan nauki generujesz bez oglądania reklam." },
-  { icon: "chatbubbles", title: "Bez limitu rozmów z doradcą", text: "Pytaj o wszystko, kiedy chcesz — bez dziennego limitu." },
+  { icon: "chatbubbles", title: "Więcej rozmów z doradcą", text: "Do 10 wiadomości dziennie — dwa razy więcej niż w darmowej wersji." },
 ];
 
 export default function Premium() {
