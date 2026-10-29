@@ -32,6 +32,9 @@ Aplikacja na Sklep Play "Reset" do przebranżowienia / wyboru ścieżki zawodowe
 ## Iteration 5 (2026-06)
 - „Wielki Reset” → „Nowy Rozdział — zmieniam życie”; nowy obrazek logowania (zespół przy pracy), hasło „Zmiana zawodu i nowa ścieżka kariery” + 3 punkty o funkcjach aplikacji
 
+## Iteration 6 (2026-06)
+- AI na własnym kluczu Anthropic użytkowniczki (ANTHROPIC_API_KEY): Claude Sonnet 5.5 (propozycje, droga, plan nauki) + Claude Haiku 5.5 (opisy, podpowiedzi, czat); max_tokens=16000
+
 ## Backlog
 - P0: Prawdziwe płatności (subskrypcja Google Play) zamiast trybu demo
 - P1: Udostępnianie postępu / drogi, przypomnienia o nauce, kilka ścieżek równolegle

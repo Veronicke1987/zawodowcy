@@ -31,10 +31,10 @@ db = client[os.environ['DB_NAME']]
 
 JWT_SECRET = os.environ['JWT_SECRET']
 JWT_ALG = "HS256"
-LLM_KEY = os.environ['EMERGENT_LLM_KEY']
+LLM_KEY = os.environ['ANTHROPIC_API_KEY']
 ADMIN_EMAILS = {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
 ANALYSIS_MODEL = ("anthropic", "claude-sonnet-5-5")
-FAST_MODEL = ("openai", "gpt-6-luna")
+FAST_MODEL = ("anthropic", "claude-haiku-5-5")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("reset")
@@ -150,7 +150,7 @@ async def public_user(u: UserDoc) -> dict:
 
 # ---------------------------------------------------------------- LLM helpers
 async def ask_llm(model: tuple, system: str, prompt: str) -> dict:
-    chat = LlmChat(api_key=LLM_KEY, session_id=str(uuid.uuid4()), system_message=system).with_model(*model)
+    chat = LlmChat(api_key=LLM_KEY, session_id=str(uuid.uuid4()), system_message=system).with_model(*model).with_params(max_tokens=16000)
     text = ""
     async for ev in chat.stream_message(UserMessage(text=prompt)):
         if isinstance(ev, TextDelta):

@@ -1,0 +1,28 @@
+{
+  "summary": "Iteration 7 (backend only): verified AI endpoints with the user's ANTHROPIC_API_KEY on a fresh TEST user. 5/6 pass: recommendations (claude-sonnet-5-5), career detail, task resources and chat SSE (claude-haiku-5-5), roadmap (claude-sonnet-5-5) all work. Every call since the switch logs provider=anthropic. FAILED: POST /api/roadmap/study-plan ends with status=error. Reproduced 2/2: Sonnet output is cut off at about 8.3k chars because no max_tokens is set, so LiteLLM falls back to the Anthropic default of 4096 tokens and the JSON is incomplete.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/roadmap/study-plan -> GET /api/roadmap/study-plan", "issue": "Status goes to 'error'. JSONDecodeError 'Expecting , delimiter' at char ~8.2k in ask_llm (server.py:163). The raw Sonnet output (8329 chars) stops in the middle of the 'tips' string with no closing brackets. The output is truncated because LlmChat sends no max_tokens, so LiteLLM uses the Anthropic default of 4096 tokens. Polish text uses many tokens, so 8 weeks x 3-5 items does not fit.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/recommendations/generate, POST /api/roadmap", "issue": "Passed now, but they use the same ask_llm with no max_tokens. Long profiles could also hit the 4096-token limit and end in status=error."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": [], "react_native_issues": []},
+  "test_report_links": ["/app/backend/tests/test_reset_iter7_anthropic_key.py", "/app/backend/tests/rca_study_plan_raw.py", "/app/test_reports/pytest/pytest_iter7.xml"],
+  "action_items": [
+    "In ask_llm (server.py:153) add .with_params(max_tokens=16000) (or at least 8192) to LlmChat, at least for ANALYSIS_MODEL calls. LlmChat.with_params passes it through to litellm. Then retest study plan.",
+    "Optionally make ask_llm fail clearly or retry once when the JSON is truncated (check finish_reason / stop_reason == max_tokens)."
+  ],
+  "critical_code_review_comments": [
+    "server.py:152-163 ask_llm: no max_tokens set and no check for truncation. The greedy regex then picks up a partial JSON object, so the error message hides the real cause.",
+    "server.py:36-37: model IDs claude-sonnet-5-5 / claude-haiku-5-5 are accepted by the Anthropic key (calls succeed)."
+  ],
+  "updated_files": ["/app/backend/tests/test_reset_iter7_anthropic_key.py (new)", "/app/backend/tests/rca_study_plan_raw.py (new RCA helper, not a pytest test)"],
+  "success_rate": {"backend": "83% (5/6)", "frontend": "not tested"},
+  "seed_data_creation": "One fresh user test_ai7_<hex>@test.pl / test123 with profile, recommendations, 1 roadmap. Premium was cancelled in teardown. ania_t1 data not touched.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: EXPO_PUBLIC_BACKEND_URL=<url> pytest tests/test_reset_iter7_anthropic_key.py (about 2 min, costs about 6 Anthropic calls on the user's paid key). Only test_study_plan_premium failed. Check logs with: grep 'provider = ' /var/log/supervisor/backend.err.log",
+  "rca_of_issue": "Repro: register a user, PUT /profile, generate recommendations, POST /roadmap, subscribe premium, POST /roadmap/study-plan, poll; status=error. The backend log shows a JSONDecodeError at server.py:163. Running the same prompt directly (rca_study_plan_raw.py) returns 8329 chars that end with '...chęci do nauki' with no closing quote or brackets, so the output was cut off at the token limit. The old GPT model on the Emergent proxy had a larger default output. Fix: pass max_tokens via with_params."
+}
