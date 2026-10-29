@@ -1,0 +1,46 @@
+{
+  "summary": "Full backend + frontend test of the 'Reset' app. Backend: 14/14 pytest checks passed (auth, profile, recommendations polling with the real Claude Sonnet 5.5 call, career detail with the real GPT-6 Luna call (~11s, cached on second call), roadmap polling, task toggle, task resources with valid https urls incl. youtube + urzad_pracy, delete roadmap). Frontend at 390x844: register -> quiz (9 steps; steps 1-3 required, Next disabled until an answer is chosen) -> analyzing state -> 5 'Już teraz' + 5 'Z nauką' cards; career detail (description, pros/cons, 4 job links, back); choose path -> celebration modal -> /road building state -> road ready; road task sheet with 6 resources + toggle (progress 24%->20%->24%); milestone sheet -> task -> close; themes fresh/calm/dark apply; logout; session persists on reload; a user with no profile is sent to the quiz. One real navigation bug: router.replace('/(tabs)...') from stack screens mounts a duplicate Tabs navigator. No deprecated Expo packages (expo-audio is used, not expo-av). No SafeAreaView issues (useSafeAreaInsets is used).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/roadmap, POST /api/recommendations/generate", "issue": "Race condition: each call spawns a background job without a job token. If a user chooses career A and then B (or regenerates twice), the older job can finish last and overwrite the newer one, e.g. A's milestones stored under career B. Fix: store a job_id or started_at in the doc and filter update_one on it."},
+      {"endpoint": "GET /api/roadmap/tasks/{id}/resources", "issue": "Writes resources to the positional path milestones.{mi}.tasks.{ti} after a ~15s LLM call. If the roadmap is replaced in the meantime, the resources land on the wrong task. Use arrayFilters on the task id, or check that the roadmap is unchanged."},
+      {"endpoint": "GET /api/careers/{id}", "issue": "Concurrent first requests both call the LLM and both insert into career_details (duplicates). Use update_one(..., upsert=True)."},
+      {"endpoint": "server.py:461", "issue": "@app.on_event is deprecated in FastAPI; use a lifespan handler."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Navigation after choose path / edit quiz", "issue": "router.replace('/(tabs)/road') in career/[id].tsx:56 and router.replace('/(tabs)') in quiz.tsx:63 (when the quiz was pushed from Profile 'Edytuj ankietę') replace only the top stack screen, so a second (tabs) navigator is mounted on top of the original. Verified: after choose path the DOM had 2x data-testid=roadmap-road and 2x road-building; after edit quiz it had 2x matches-analyzing. Effects: duplicate polling queries; Android back on the new tabs returns to a stale tabs instance instead of leaving the app; stack grows with each choice. Fix: router.dismissTo('/(tabs)/road') and router.dismissTo('/(tabs)'), or router.dismissAll() followed by router.navigate(...).", "testID": "choose-path-button, quiz-next-button", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "career/[id]", "issues": ["While the detail LLM call runs (~11-15s) the screen shows only the hero and a spinner. Title, match % and salary are already in the cached ['recommendations'] query and could be shown at once (use it as initialData or a fallback for the header)."]},
+      {"screen": "Droga (RoadMap)", "issues": ["Some task labels overlap the road stroke or node, e.g. right-side label 'Szybkie pisanie na klawiaturze' starts on the road edge, and left label 'Doświadczenie w księgowości' runs into its node. Add label clearance from the road curve, or limit label width by distance to the path."]},
+      {"screen": "Quiz step 1", "issues": ["The long chip 'Straciłem/am pracę przez AI lub automatyzację' is 349px wide at x=24, ending at x=373 and overflowing the 24px right padding on a 390px screen. Allow the chip to shrink or wrap (maxWidth: '100%')."]},
+      {"screen": "Auth", "issues": ["The auth screen opens in 'Rejestracja' mode. Returning users who type their credentials get 'Konto z tym adresem już istnieje'. Consider defaulting to login when a token was previously stored, or making the mode toggle more prominent."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_reset_api.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "HIGH: Replace router.replace('/(tabs)/road') (career/[id].tsx:56) and router.replace('/(tabs)') (quiz.tsx:63) with router.dismissTo(...) or dismissAll + navigate, so the Tabs navigator is not mounted twice.",
+    "MEDIUM: Add a job token to the background recommendations/roadmap jobs so stale jobs cannot overwrite newer results.",
+    "MEDIUM: Write task resources with arrayFilters on the task id instead of positional indices captured before the LLM call.",
+    "LOW: Show the career header (title, match, salary) from cached recommendations while the detail is loading.",
+    "LOW: Fix road label overlap with the road stroke; fix quiz chip overflow; upsert career_details; clear the celebration setTimeout on unmount (career/[id].tsx:54)."
+  ],
+  "critical_code_review_comments": [
+    "career/[id].tsx:54: setTimeout is not cleared if the user leaves during the 2.2s celebration, so replace() still fires afterwards.",
+    "server.py: background jobs are tracked only in memory (_bg_tasks). A backend restart leaves a doc stuck in status 'pending' forever, and the UI polls indefinitely. Add a staleness check on started_at, e.g. treat pending > 3 min as error.",
+    "server.py:155: the greedy JSON regex is fine for single-object responses, but a JSON parse error becomes a generic error state. Acceptable.",
+    "No hardcoded URLs; env vars are used. _id is excluded in responses. Files are under 500 lines."
+  ],
+  "updated_files": ["/app/backend/tests/test_reset_api.py"],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "95% (all requested flows work; 1 navigation stack bug)"},
+  "seed_data_creation": "Created users test_*@test.pl (pytest, roadmap deleted at the end) and ui_1d23d5@test.pl / test123 (UI test user with recommendations + roadmap for 'Konsultant ds. obsługi klienta'). ania_t1 data unchanged: task toggled and reverted.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest with '-n 0' (pytest.ini enables xdist, which breaks ordered LLM-flow tests). Auth screen defaults to register mode; click auth-mode-login first. Bottom tabs have no testIDs; use get_by_text('Droga'/'Profil', exact=True). Wait about 1.5s after opening sheets because of the slide animation. After choose-path or edit-quiz, check that DOM counts of roadmap-road and matches-analyzing are 1 (duplicate-tabs bug).",
+  "rca_of_issue": "Duplicate tabs: the root Stack holds [(tabs), career/[id]] or [(tabs), quiz]. router.replace swaps only the top route, so the stack becomes [(tabs), (tabs)]. Reproduce: Zawody -> card -> 'Wybieram tę ścieżkę' -> on /road, document.querySelectorAll('[data-testid=roadmap-road]').length === 2. Mitigation: router.dismissTo('/(tabs)/road')."
+}

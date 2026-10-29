@@ -1,0 +1,32 @@
+{
+  "summary": "Retest of the iteration_1 fixes. Everything passed. Backend: 7/7 new pytest cases (job_id guard for recommendations and roadmap, stale pending jobs expiring after 4 min, fresh pending jobs staying pending, resources saved under the right task id and cached, career_details upsert under concurrent requests). Frontend (375x667): choosing a path from /career/[id] uses dismissTo('/(tabs)/road'). Afterwards exactly 1 road-career-title/roadmap-road is mounted, both on a cold start and when all tabs were already mounted. Profile > Edytuj ankietę > all 9 steps > 'Pokaż moje zawody' returns to '/' with exactly 1 matches-analyzing and 1 roadmap-road. On quiz step 1 the long chip 'Straciłem/am pracę przez AI lub automatyzację' wraps inside the screen; no element overflows horizontally.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/careers/{id}", "issue": "Two concurrent requests for an uncached career both call the LLM. Only one document is stored thanks to the upsert, but this costs two LLM calls. An optional in-flight dedupe would fix it."},
+      {"endpoint": "PATCH /api/roadmap/tasks/{id}, GET /api/roadmap/tasks/{id}/resources", "issue": "Writes still use positional indices from a find() just before the update. The task id is re-located on a fresh document, so the window is tiny, but arrayFilters on the task id would be atomic."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_reset_iter2_fixes.py", "/app/test_reports/pytest/pytest_iter2.xml"],
+  "action_items": [
+    "LOW (optional): dedupe concurrent career-detail LLM calls; use arrayFilters on the task id for toggle and resources writes."
+  ],
+  "critical_code_review_comments": [
+    "The job_id guard is correct: run_* updates filter on {user_id, job_id}, so stale jobs do nothing. Verified: the second POST wins and the result is unchanged 25s later.",
+    "expire_stale handles tz-aware ISO timestamps correctly and also writes the error to the database.",
+    "After regenerating recommendations, the existing roadmap.career may point to a career id that is no longer in the recommendations (display only, no crash)."
+  ],
+  "updated_files": ["/app/backend/tests/test_reset_iter2_fixes.py (new)"],
+  "success_rate": {"backend": "100% (7/7)", "frontend": "100% (4/4 retested fixes)"},
+  "seed_data_creation": "Temporary test_it2_* users are created and deleted by the fixture. ania_t1@test.pl now has a roadmap for 'Specjalista ds. analiz finansowych' (pending at the end of the test) and freshly regenerated recommendations.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run pytest with '-n 0'. Run long LLM suites with 'setsid nohup ... &' because a plain background job is killed when the bash call times out. Bottom tabs are labelled Zawody/Droga/Profil (use get_by_text, exact=True). Duplicate-tab check: count [data-testid=road-career-title], [data-testid=roadmap-road], [data-testid=matches-analyzing] and [data-testid=matches-list]; each must be <= 1.",
+  "rca_of_issue": ""
+}

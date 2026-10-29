@@ -1,0 +1,237 @@
+{
+  "app_name": "Reset",
+  "personality": "4 Tactile / Playful LIGHT",
+  "personality_one_liner": "A friendly, motivating, and approachable guide to finding your next career path, utilizing rounded shapes, energetic colors, and clear progression.",
+  "color": {
+    "surface": "#FFFFFF",
+    "onSurface": "#1C1C1E",
+    "surfaceSecondary": "#F5F5F7",
+    "onSurfaceSecondary": "#3A3A3C",
+    "surfaceTertiary": "#E5E5EA",
+    "onSurfaceTertiary": "#1C1C1E",
+    "surfaceInverse": "#1C1C1E",
+    "onSurfaceInverse": "#FFFFFF",
+    "brand": "#FF6B6B",
+    "onBrand": "#FFFFFF",
+    "brandPrimary": "#FA5252",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#FF8787",
+    "onBrandSecondary": "#343A40",
+    "brandTertiary": "#FFE3E3",
+    "onBrandTertiary": "#E03131",
+    "success": "#2B8A3E",
+    "onSuccess": "#FFFFFF",
+    "warning": "#F59F00",
+    "onWarning": "#FFFFFF",
+    "error": "#C92A2A",
+    "onError": "#FFFFFF",
+    "info": "#1864AB",
+    "onInfo": "#FFFFFF",
+    "border": "#E5E5EA",
+    "borderStrong": "#C7C7CC",
+    "divider": "#E5E5EA",
+    "muted": "#8E8E93"
+  },
+  "theme_calm": {
+    "surface": "#FDFDFD",
+    "onSurface": "#2B2B2B",
+    "surfaceSecondary": "#F4F4F3",
+    "onSurfaceSecondary": "#4A4A4A",
+    "surfaceTertiary": "#EBEBE9",
+    "onSurfaceTertiary": "#2B2B2B",
+    "surfaceInverse": "#2B2B2B",
+    "onSurfaceInverse": "#FDFDFD",
+    "brand": "#8AA798",
+    "onBrand": "#FFFFFF",
+    "brandPrimary": "#728F81",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#A3BCAD",
+    "onBrandSecondary": "#1F2923",
+    "brandTertiary": "#E1EAE4",
+    "onBrandTertiary": "#3B5246",
+    "success": "#406B54",
+    "onSuccess": "#FFFFFF",
+    "warning": "#D4A373",
+    "onWarning": "#1F2923",
+    "error": "#9E4747",
+    "onError": "#FFFFFF",
+    "border": "#EBEBE9",
+    "borderStrong": "#D1D1CD",
+    "divider": "#EBEBE9",
+    "muted": "#8A8A8A"
+  },
+  "theme_dark": {
+    "surface": "#121212",
+    "onSurface": "#E0E0E0",
+    "surfaceSecondary": "#1E1E1E",
+    "onSurfaceSecondary": "#B3B3B3",
+    "surfaceTertiary": "#2C2C2C",
+    "onSurfaceTertiary": "#E0E0E0",
+    "surfaceInverse": "#E0E0E0",
+    "onSurfaceInverse": "#121212",
+    "brand": "#D4AF37",
+    "onBrand": "#121212",
+    "brandPrimary": "#C4A02A",
+    "onBrandPrimary": "#121212",
+    "brandSecondary": "#E2C45F",
+    "onBrandSecondary": "#121212",
+    "brandTertiary": "#423A16",
+    "onBrandTertiary": "#EAD688",
+    "success": "#2E7D32",
+    "onSuccess": "#FFFFFF",
+    "warning": "#F57F17",
+    "onWarning": "#121212",
+    "error": "#D32F2F",
+    "onError": "#FFFFFF",
+    "border": "#2C2C2C",
+    "borderStrong": "#4A4A4A",
+    "divider": "#2C2C2C",
+    "muted": "#757575"
+  },
+  "typography": {
+    "displayFontFamily": "Plus Jakarta Sans",
+    "textFontFamily": "Plus Jakarta Sans",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous tactile spacing. Elements should feel like physical, touchable modules. Emphasize vertical rhythm and breathing room around nested cards.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": 2,
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": true,
+    "do's": [
+      "Use blur on the bottom tab bar and sticky headers.",
+      "Use on the Floating Action Button (if any) or celebration modals.",
+      "Ensure readability by adding a tinted base under the blur."
+    ],
+    "dont's": [
+      "Do not use on generic list rows, form fields, or standard buttons.",
+      "Do not overdo it. Maximum 2 glass surfaces per screen."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Auth",
+      "purpose": "Email/password authentication.",
+      "states": {
+        "loading": "Spinner overlaid on the login button.",
+        "empty": "N/A",
+        "error": "Inline text or toast showing authentication failure."
+      },
+      "layout": "Simple column layout with a hero illustration at the top, clear inputs, and a prominent sticky CTA."
+    },
+    {
+      "name": "OnboardingQuiz",
+      "purpose": "Multi-step questionnaire to capture current state, skills, likes/dislikes, and personality.",
+      "states": {
+        "loading": "Skeleton of the question block.",
+        "empty": "N/A",
+        "error": "Error toast with a 'Try Again' button."
+      },
+      "layout": "One question per screen. Use spectrum sliders, multi-select pill chips, and nested selection cards instead of long lists. Include a top progress bar, a back button, and a sticky 'Next' CTA at the bottom."
+    },
+    {
+      "name": "CareerMatches",
+      "purpose": "Show AI recommendations divided into two segments: 'What you can do now' and 'Requires new skills'.",
+      "states": {
+        "loading": "Shimmer effect on career cards.",
+        "empty": "Illustration + 'We couldn't generate matches. Try updating your quiz answers.'",
+        "error": "Error message with a retry CTA."
+      },
+      "layout": "Top segmented control (Now vs. New Skills). List of chunky, touchable career cards. Each card displays title, short summary, and a match percentage badge."
+    },
+    {
+      "name": "CareerDetail",
+      "purpose": "Provide in-depth information on a chosen career and a CTA to select this path.",
+      "states": {
+        "loading": "Skeleton for hero and text blocks.",
+        "empty": "N/A",
+        "error": "Failed to load details. Retry button."
+      },
+      "layout": "Hero image with gradient scrim. Sections for Description, Pros (green check icons), Cons (red cross icons), and How to Start. Bottom sticky primary CTA 'Choose This Path' (triggers celebration sound/haptics)."
+    },
+    {
+      "name": "CareerRoadmap",
+      "purpose": "Visual winding road showing the user's progress toward the ultimate career goal.",
+      "states": {
+        "loading": "Skeleton nodes on a path.",
+        "empty": "Illustration + 'Select a career path to see your roadmap.' + CTA to matches.",
+        "error": "Error message + retry."
+      },
+      "layout": "Vertical winding path (CSS/SVG or curved layout lines). Big milestones (positions/roles) shown as prominent nodes. Small checkpoints (tasks) between them with tappable checkboxes. Tapping a node opens a bottom sheet with step resources (links to YouTube, courses, etc.). Completed path segments should be distinct (solid line with brand color) from pending segments (dashed muted line)."
+    },
+    {
+      "name": "ProfileSettings",
+      "purpose": "Manage profile details and app preferences.",
+      "states": {
+        "loading": "Skeleton settings rows.",
+        "empty": "N/A",
+        "error": "N/A"
+      },
+      "layout": "List layout. Includes a specific section for 'Theme Selection' allowing users to switch between 'Świeży' (Fresh), 'Spokojny' (Calm), and 'Ciemny' (Dark)."
+    }
+  ],
+  "haptics": {
+    "quiz_option_select": "selection",
+    "quiz_next_step": "light",
+    "career_path_chosen": "success",
+    "checkpoint_completed": "medium",
+    "theme_switched": "heavy"
+  },
+  "images": {
+    "hero_office": {
+      "url": "https://images.unsplash.com/photo-1510519138101-570d1dca3d66?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1NzZ8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBob21lJTIwb2ZmaWNlJTIwZGVzayUyMHNldHVwfGVufDB8fHx8MTc5MzMwMTM4N3ww&ixlib=rb-4.1.0&q=85",
+      "alt": "Modern home office setup"
+    },
+    "hero_road": {
+      "url": "https://images.unsplash.com/photo-1606059979642-8390434af3d5?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzl8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjB3aW5kaW5nJTIwbW91bnRhaW4lMjByb2FkJTIwbGFuZHNjYXBlfGVufDB8fHx8MTc5MzMwMTM4N3ww&ixlib=rb-4.1.0&q=85",
+      "alt": "Winding mountain road landscape"
+    },
+    "success_abstract": {
+      "url": "https://images.unsplash.com/photo-1687787416048-d7acdd89bfc3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzF8MHwxfHNlYXJjaHwxfHxtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBzdWNjZXNzJTIwY2FyZWVyfGVufDB8fHx8MTc5MzMwMTM4N3ww&ixlib=rb-4.1.0&q=85",
+      "alt": "Minimal abstract success blocks"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Build the UI utilizing the default 'Fresh' theme (Tactile / Playful LIGHT). Ensure you set up a ThemeProvider context to switch between the base 'color' (Fresh), 'theme_calm', and 'theme_dark'.",
+    "Theme Polish translations: 'Świeży i motywujący' (Fresh), 'Spokojny i profesjonalny' (Calm), 'Ciemny i nowoczesny' (Dark). Expose these inside the Profile/Settings screen.",
+    "The Onboarding Quiz must avoid long scrolling forms. Implement one question per screen with interactive inputs like multi-select chips and spectrum sliders. Include a progress bar at the top.",
+    "Implement the 'Winding Road' on the CareerRoadmap screen. Use an SVG-based curved path or staggered nodes to represent the journey. Differentiate completed paths visually (e.g., solid brand color line) from uncompleted (muted dashed line).",
+    "Big milestones on the road represent job positions. Small checkpoints represent tasks. Tapping a checkpoint must open a Bottom Sheet containing actionable links (YouTube, Urząd Pracy, study enrollments).",
+    "Crucial UX element: When the user selects a career path from CareerDetail, play a celebration sound (via expo-av) AND trigger a success haptic feedback. This marks a major emotional commitment.",
+    "Road specific colors (to be extracted from active theme): path_completed = brandPrimary, path_pending = muted/surfaceTertiary, milestone_unlocked = brandSecondary, milestone_current = brandPrimary."
+  ]
+}
