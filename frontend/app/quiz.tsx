@@ -7,6 +7,7 @@ import Animated, { FadeInRight, useAnimatedStyle, withTiming } from "react-nativ
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
+import { useAds } from "@/src/ads/AdsProvider";
 import { useAuth } from "@/src/auth";
 import { Button, Chip, ErrorBox, IconButton, IconName, Ionicons, Txt } from "@/src/components/ui";
 import { queryClient } from "@/src/query-client";
@@ -22,7 +23,7 @@ export default function Quiz() {
   const router = useRouter();
   const { edit } = useLocalSearchParams<{ edit?: string }>();
   const { refresh } = useAuth();
-  const [step, setStep] = useState(0);
+  const { watchAd, showAds } = useAds();  const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Answers>({ personality: {} });
   const [loadingPrev, setLoadingPrev] = useState(!!edit);
   const [saving, setSaving] = useState(false);
@@ -54,6 +55,9 @@ export default function Quiz() {
   const next = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     if (!isLast) return setStep(step + 1);
+    // re-editing an existing profile generates new AI proposals, so it's ad-gated
+    // like other AI-generation actions; the very first onboarding quiz is not.
+    if (edit && !(await watchAd("otrzymać nowe propozycje zawodów"))) return;
     setSaving(true);
     setError("");
     try {
@@ -122,6 +126,11 @@ export default function Quiz() {
 
       <KeyboardStickyView offset={{ opened: insets.bottom }} style={styles.sticky}>
         <View style={[styles.stickyInner, { paddingBottom: insets.bottom + spacing.md }]}>
+          {edit && isLast && showAds ? (
+            <Text style={styles.notice} testID="quiz-ad-notice">
+              Przed nowymi propozycjami zobaczysz krótką reklamę.
+            </Text>
+          ) : null}
           <Button
             testID="quiz-next-button"
             title={isLast ? "Pokaż moje zawody" : "Dalej"}
@@ -284,7 +293,8 @@ const useStyles = makeStyles((c) => ({
     color: c.onSurface,
   },
   sticky: { position: "absolute", left: 0, right: 0, bottom: 0 },
-  stickyInner: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, backgroundColor: c.surface, borderTopWidth: 1, borderTopColor: c.divider },
+  stickyInner: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, backgroundColor: c.surface, borderTopWidth: 1, borderTopColor: c.divider, gap: spacing.sm },
+  notice: { fontFamily: fonts.medium, fontSize: 12, lineHeight: 17, color: c.muted, textAlign: "center" },
   spectrum: { backgroundColor: c.surfaceSecondary, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
   specLabels: { flexDirection: "row", justifyContent: "space-between", gap: spacing.md },
   specLabel: { flex: 1, fontFamily: fonts.semibold, fontSize: 13, color: c.muted },

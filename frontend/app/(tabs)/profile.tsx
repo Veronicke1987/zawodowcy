@@ -5,6 +5,7 @@ import { ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
+import { useAds } from "@/src/ads/AdsProvider";
 import { useAuth } from "@/src/auth";
 import { Button, Ionicons, IconName, PressableScale, Txt } from "@/src/components/ui";
 import { usesNativeTabs } from "@/src/navigation";
@@ -18,12 +19,14 @@ export default function Profile() {
   const { colors, name } = useTheme();
   const router = useRouter();
   const { user, logout } = useAuth();
+  const { watchAd, showAds } = useAds();
   const [regen, setRegen] = useState(false);
   const [msg, setMsg] = useState("");
 
   const regenerate = async () => {
-    setRegen(true);
     setMsg("");
+    if (!(await watchAd("wygenerować nowe propozycje zawodów"))) return;
+    setRegen(true);
     try {
       await api("/recommendations/generate", { method: "POST" });
       queryClient.invalidateQueries({ queryKey: ["recommendations"] });
@@ -102,6 +105,11 @@ export default function Profile() {
           <Txt variant="heading">Moje odpowiedzi</Txt>
           <Row icon="create-outline" title="Edytuj ankietę" subtitle="Zmień odpowiedzi i otrzymaj nowe propozycje" testID="profile-edit-quiz" onPress={() => router.push("/quiz?edit=1")} />
           <Row icon="sparkles-outline" title="Wygeneruj nowe propozycje" subtitle="AI ponownie przeanalizuje Twój profil" testID="profile-regenerate" onPress={regenerate} loading={regen} />
+          {showAds ? (
+            <Txt variant="caption" testID="profile-ad-notice">
+              Edycja ankiety i generowanie nowych propozycji pokazują krótką reklamę. Bez reklam z Premium.
+            </Txt>
+          ) : null}
           {msg ? <Txt style={{ color: colors.error }}>{msg}</Txt> : null}
         </View>
 
