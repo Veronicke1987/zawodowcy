@@ -1,0 +1,34 @@
+{
+  "summary": "Both-stack test of 2 targeted bug fixes. BUG FIX 1 (backend daily-plan realism prompt in run_daily_plan): verified end-to-end with a fresh registered user (profile -> /roadmap/custom -> /roadmap/daily-plan/settings) for both a free user (2-day unlock cap, expected/by-design, non-regression) and a premium user (full 7-day week). All generated items across the week were small, single-day-realistic steps; no forbidden one-day-completion phrasing ('ukończ kurs', 'zdobądź certyfikat', 'zdobądź doświadczenie przez staż', 'weź udział w szkoleniu <institution>') and no fake-sounding specific institution/city-offer claims were found. The single long_term item observed per week was correctly phrased as a check-in ('Przegląd postępów w kursie IT' / 'Sprawdź swój postęp...'), never 'ukończ/zdobądź'. BUG FIX 2 (frontend ScrollView in DailyItemSheet + preventive flex:1 fix in TaskSheet/MilestoneSheet): verified live in browser (mobile viewport 375x667) that both the road-screen TaskSheet and the Plan dnia DailyItemSheet now scroll all the way to the bottom (AiNote disclaimer visible), confirmed by mouse-wheel scroll + full inner_text dump showing the final resource rows and disclaimer text were reached -- this was the main reported bug and is fixed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter30_daily_plan_realism.py",
+    "/app/test_reports/pytest/pytest_iter30_daily.xml"
+  ],
+  "action_items": [
+    "No code fix required for either bug. Both fixes verified working as described.",
+    "Optional/low priority: did not re-test MilestoneSheet's flex:1 preventive fix directly via a long resource list in UI (code review confirms the style was applied identically to TaskSheet/MilestoneSheet in TaskSheet.tsx lines ~178 and ~219), low risk given TaskSheet (same pattern) verified working."
+  ],
+  "critical_code_review_comments": [
+    "run_daily_plan prompt (server.py ~1078-1104) correctly contains all 4 required constraints: (a) single-day realism tied to time_desc, (b) explicit forbidden phrase list with correct small-step examples, (c) caution against inventing institution names / asserting a specific city offer exists, (d) long_term=true items limited to one per week phrased as step/check-in never ukończ/zdobądź. Verified with real OpenAI gpt-4.1-mini output matching all these rules in two separate runs (free + premium).",
+    "run_study_plan (server.py ~1007-1010) also contains the lighter institution-naming caution as described, confirmed present via code review (not independently re-tested since this was flagged as 'no regression' verification only).",
+    "Stateless confirmed by design: run_daily_plan still takes only pending task list + day/time window per call, no history passed (unchanged from prior iterations).",
+    "DailyItemSheet (plan.tsx ~358) now wraps content in <ScrollView style={{flex:1}} ...> exactly as described; TaskSheet.tsx TaskSheet (line 68) and MilestoneSheet (line 178) ScrollViews both have style={{flex:1}} added alongside the existing maxHeight:88% on the parent Sheet (line 219) -- correct RN pattern (parent caps height via maxHeight, child ScrollView with flex:1 fills remaining space and scrolls)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter30_daily_plan_realism.py"],
+  "success_rate": {"backend": "100% (1/1 new test passed, 2 live-data runs inspected manually)", "frontend": "100% (2/2 scroll flows verified: road-task TaskSheet, Plan dnia DailyItemSheet)"},
+  "seed_data_creation": "Created fresh TEST_ prefixed users via both pytest (TEST_daily30_*, TEST_daily31... actually TEST_daily30_*@test.pl) and browser flow (TEST_scroll31_*@test.pl), each with a profile, a custom roadmap (Specjalista ds. sprzedaży IT), and a daily plan. Test data only, no production data touched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "test_iter30_daily_plan_realism.py in /app/backend/tests/ (run with `-n 0`, export EXPO_PUBLIC_BACKEND_URL/MONGO_URL/DB_NAME from .env files first since no conftest auto-loads them) covers the daily-plan realism fix for both free and premium users. For frontend scroll testing: each browser_automation_tool call appears to start a fresh browser context (localStorage/auth lost between separate tool calls) so the full login->navigate->interact->screenshot sequence must happen within a SINGLE script call, not split across multiple calls (page.goto mid-flow in a new call lost the session once, 'Sesja wygasła').",
+  "rca_of_issue": "Not applicable - no bugs found in either reviewed fix. Both match their described implementation and were confirmed against real OpenAI-backed output and live UI interaction."
+}

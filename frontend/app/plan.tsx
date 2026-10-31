@@ -346,7 +346,7 @@ function DailyItemSheet({ item, onClose }: { item: DailyItem | null; onClose: ()
   return (
     <Sheet visible={!!item} onClose={onClose} testID="daily-item-sheet">
       {item ? (
-        <View style={{ gap: spacing.lg }}>
+        <>
           <View style={styles.headRow}>
             <View style={{ flex: 1 }}>
               <Txt variant="heading">{item.title}</Txt>
@@ -355,27 +355,29 @@ function DailyItemSheet({ item, onClose }: { item: DailyItem | null; onClose: ()
               </Txt>
             </View>
           </View>
-          {q.isLoading ? (
-            <ActivityIndicator style={styles.loading} color={colors.brandPrimary} />
-          ) : q.isError ? (
-            <ErrorBox testID="daily-item-resources-error" message={(q.error as Error).message} onRetry={() => q.refetch()} />
-          ) : data ? (
-            <>
-              <Txt>{data.overview}</Txt>
-              <Block title="Kroki" items={data.steps} numbered icon="checkmark-circle-outline" />
-              {data.free_tips?.length ? <Block title="Za darmo" items={data.free_tips} icon="gift-outline" /> : null}
-              {data.resources?.length ? (
-                <View style={{ gap: spacing.sm }}>
-                  <Txt variant="heading">Materiały</Txt>
-                  {data.resources.map((r, i) => (
-                    <ResourceRow key={i} res={r} testID={`daily-item-resource-${i}`} />
-                  ))}
-                </View>
-              ) : null}
-              <AiNote />
-            </>
-          ) : null}
-        </View>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.lg }} showsVerticalScrollIndicator={false}>
+            {q.isLoading ? (
+              <ActivityIndicator style={styles.loading} color={colors.brandPrimary} />
+            ) : q.isError ? (
+              <ErrorBox testID="daily-item-resources-error" message={(q.error as Error).message} onRetry={() => q.refetch()} />
+            ) : data ? (
+              <>
+                <Txt>{data.overview}</Txt>
+                <Block title="Kroki" items={data.steps} numbered icon="checkmark-circle-outline" />
+                {data.free_tips?.length ? <Block title="Za darmo" items={data.free_tips} icon="gift-outline" /> : null}
+                {data.resources?.length ? (
+                  <View style={{ gap: spacing.sm }}>
+                    <Txt variant="heading">Materiały</Txt>
+                    {data.resources.map((r, i) => (
+                      <ResourceRow key={i} res={r} testID={`daily-item-resource-${i}`} />
+                    ))}
+                  </View>
+                ) : null}
+                <AiNote />
+              </>
+            ) : null}
+          </ScrollView>
+        </>
       ) : null}
     </Sheet>
   );

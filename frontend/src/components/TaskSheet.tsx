@@ -65,7 +65,7 @@ export function TaskSheet({ task, onClose, onToggle }: { task: Task | null; onCl
             </View>
             <IconButton testID="task-sheet-close" icon="close" onPress={onClose} />
           </View>
-          <ScrollView contentContainerStyle={{ gap: spacing.lg, paddingBottom: spacing.lg }} showsVerticalScrollIndicator={false}>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: spacing.lg, paddingBottom: spacing.lg }} showsVerticalScrollIndicator={false}>
             <Txt>{task.description}</Txt>
             <Button
               testID="task-toggle-button"
@@ -175,7 +175,7 @@ export function MilestoneSheet({
             </View>
             <IconButton testID="milestone-sheet-close" icon="close" onPress={onClose} />
           </View>
-          <ScrollView contentContainerStyle={{ gap: spacing.lg, paddingBottom: spacing.lg }} showsVerticalScrollIndicator={false}>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: spacing.lg, paddingBottom: spacing.lg }} showsVerticalScrollIndicator={false}>
             <Txt>{milestone.description}</Txt>
             <View style={{ flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" }}>
               {milestone.salary ? (

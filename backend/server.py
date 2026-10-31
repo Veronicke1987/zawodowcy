@@ -679,14 +679,16 @@ async def career_detail(career_id: str, user: UserDoc = Depends(current_user)):
 Zawód: {career['title']} (branża: {career.get('industry', '')}).
 
 Opisz ten zawód szczegółowo, na podstawie typowych ofert pracy w Polsce (Pracuj.pl, OLX, LinkedIn). W polu "how_to_start" bądź KONKRETNY —
-nazwij z imienia realne kursy/szkolenia/platformy/kierunki studiów i wskaż gdzie ich szukać (np. "kurs »Kadry i płace od podstaw« na Platformie
-Vademecum Kadrowego", "szkolenie finansowane z KFS w urzędzie pracy", "kierunek Logistyka na studiach I stopnia"), a nie ogólniki typu
-"zrób kurs" czy "znajdź szkolenie". Zwróć JSON:
+nazwij z imienia realne kursy/szkolenia/platformy i wskaż gdzie ich szukać (np. "kurs »Kadry i płace od podstaw« na Platformie Vademecum
+Kadrowego", "szkolenie finansowane z KFS w urzędzie pracy"), a nie ogólniki typu "zrób kurs" czy "znajdź szkolenie". JEŚLI wymaga to studiów —
+podaj nazwę kierunku (ew. 1-2 pokrewne kierunki) i wymień 2-3 PRZYKŁADOWE, różne uczelnie w Polsce, które go oferują, jako opcje do wyboru
+(np. "kierunek Logistyka — dostępny m.in. na Uniwersytecie Ekonomicznym w Krakowie, Politechnice Warszawskiej lub w WSB") — NIGDY nie wskazuj
+jednej konkretnej uczelni jako jedynej słusznej drogi. Zwróć JSON:
 {{"description": "3-4 zdania (max 60 słów) pełnego opisu zawodu — czym się zajmuje, w jakich firmach/branżach pracuje, jak wygląda typowy dzień",
  "daily_tasks": ["5-7 typowych codziennych zadań, pełne frazy, max 12 słów każde"],
  "pros": ["4-6 plusów, pełne frazy, max 12 słów każdy"], "cons": ["3-5 minusów, pełne frazy, max 12 słów każdy"],
  "requirements": ["6-9 typowych wymagań z ogłoszeń, krótkie frazy, np. wykształcenie, znajomość programów, prawo jazdy kat. B, języki"],
- "how_to_start": ["5-7 konkretnych, nazwanych z imienia kroków (z nazwami kursów/platform/kierunków studiów/programów urzędu pracy), max 22 słowa każdy"],
+ "how_to_start": ["5-7 konkretnych, nazwanych z imienia kroków (kursy/platformy/programy urzędu pracy z nazwy, a dla studiów: kierunek + kilka przykładowych uczelni), max 22 słowa każdy"],
  "career_levels": ["4-5 kolejnych, REALNYCH, oficjalnie istniejących w Polsce stanowisk/stopni awansu w TYM KONKRETNYM zawodzie, od wejściowego do najwyższego — np. dla nauczyciela: nauczyciel stażysta, kontraktowy, mianowany, dyplomowany, wicedyrektor, dyrektor szkoły; dla programisty: junior, mid, senior, lead, CTO. NIE wymyślaj nazw stanowisk, których nie ma w tym zawodzie — jeśli nie masz pewności, użyj najbardziej powszechnie znanej, rzeczywistej struktury awansu."]}}"""
     try:
         detail = await ask_llm(FAST_MODEL, SYSTEM_PL, prompt)
@@ -952,22 +954,26 @@ zadań z tej ścieżki ani do żadnych wcześniejszych rozmów czy wcześniej wy
 Zadanie do zdobycia: {task['title']} — {task['description']} (typ: {task['type']}).
 Miejscowość użytkownika: {city or 'nie podano'}.
 
-Podpowiedz, jak zdobyć ten punkt. Jeśli to studia — opisz kierunki, tryby (dzienne/zaoczne/podyplomowe), możliwe specjalizacje, gdzie szukać rekrutacji.
+Podpowiedz, jak zdobyć ten punkt. Jeśli to studia — opisz kierunek (lub 1-2 pokrewne kierunki), tryby (dzienne/zaoczne/podyplomowe), możliwe
+specjalizacje, gdzie szukać rekrutacji. DLA STUDIÓW NIGDY nie wskazuj jednej konkretnej uczelni jako jedynej słusznej drogi — zamiast tego
+podaj nazwę kierunku i wymień 2-3 PRZYKŁADOWE, różne uczelnie w Polsce, które go oferują, jako opcje do wyboru (np. "kierunek Logistyka —
+dostępny m.in. na Uniwersytecie Ekonomicznym w Krakowie, Politechnice Warszawskiej lub w WSB", a nie "idź na Logistykę na Politechnice Warszawskiej").
 Jeśli to umiejętność/program (np. Excel) — kanały YouTube, platformy szkoleniowe, jak korzystać darmowo (np. Excel w przeglądarce w Microsoft 365 online),
 kursy finansowane przez urząd pracy (bon szkoleniowy, KFS), webinary.
-WAŻNE — bądź KONKRETNY, nie ogólnikowy: w "steps" i "free_tips" zawsze podawaj NAZWY WŁASNE — konkretny kurs/szkolenie, konkretną platformę
-lub kanał (np. "kurs »Excel od podstaw do zaawansowanego« na Udemy", "szkolenie kadrowo-płacowe finansowane z Krajowego Funduszu Szkoleniowego (KFS)
-w powiatowym urzędzie pracy", "kanał YouTube »ExcelPL«"), a nie ogólniki typu "znajdź kurs" czy "skorzystaj ze szkolenia". Jeśli dotyczy urzędu
-pracy, nazwij DOKŁADNIE jaki to rodzaj wsparcia (bon szkoleniowy, KFS, staż, dofinansowanie studiów podyplomowych, bon na zasiedlenie) i co trzeba
-tam zrobić (jaki wniosek, do kogo).
+WAŻNE — bądź KONKRETNY, nie ogólnikowy, ale nie narzucaj jednej jedynej opcji tam, gdzie realnie jest wybór: dla KURSÓW/SZKOLEŃ/KANAŁÓW w "steps"
+i "free_tips" zawsze podawaj NAZWY WŁASNE — konkretny kurs/szkolenie, konkretną platformę lub kanał (np. "kurs »Excel od podstaw do zaawansowanego«
+na Udemy", "szkolenie kadrowo-płacowe finansowane z Krajowego Funduszu Szkoleniowego (KFS) w powiatowym urzędzie pracy", "kanał YouTube »ExcelPL«"),
+a nie ogólniki typu "znajdź kurs" czy "skorzystaj ze szkolenia". Jeśli dotyczy urzędu pracy, nazwij DOKŁADNIE jaki to rodzaj wsparcia (bon
+szkoleniowy, KFS, staż, dofinansowanie studiów podyplomowych, bon na zasiedlenie) i co trzeba tam zrobić (jaki wniosek, do kogo). Dla STUDIÓW
+(patrz wyżej) podawaj kierunek + kilka przykładowych uczelni, nigdy jedną wskazaną z imienia jako jedyną.
 Zwróć JSON:
 {{"overview": "3-4 zdania (max 60 słów) czym jest ten punkt, dlaczego jest ważny i co konkretnie zyskujesz go zdobywając",
- "steps": ["5-7 konkretnych, nazwanych z imienia kroków jak to zdobyć (z nazwami kursów/platform/programów), max 24 słowa każdy"],
+ "steps": ["5-7 konkretnych, nazwanych z imienia kroków jak to zdobyć (z nazwami kursów/platform/programów, a dla studiów: kierunek + kilka przykładowych uczelni), max 24 słowa każdy"],
  "free_tips": ["3-5 konkretnych, nazwanych z imienia sposobów zrobienia tego za darmo lub taniej, max 22 słowa każdy"],
  "specializations": ["tylko dla studiów/kursów: możliwe specjalizacje, inaczej pusta lista"],
  "time_estimate": "ile to zwykle trwa",
- "resources": [{{"type": "youtube|course|studies|urzad_pracy|webinar|certificate|article", "platform": "np. YouTube, Coursera, Udemy, LinkedIn Learning, Google",
-                "title": "konkretna, realna nazwa kursu/kanału/szkolenia (nie ogólnik)", "description": "max 18 słów, co dokładnie zawiera",
+ "resources": [{{"type": "youtube|course|studies|urzad_pracy|webinar|certificate|article", "platform": "np. YouTube, Coursera, Udemy, LinkedIn Learning, Google (dla studiów: nazwa uczelni jako JEDEN z kilku przykładów)",
+                "title": "konkretna, realna nazwa kursu/kanału/szkolenia, a dla studiów: nazwa kierunku (nie pojedyncza narzucona uczelnia)", "description": "max 18 słów, co dokładnie zawiera",
                 "query": "fraza wyszukiwania po polsku"}}]}}
 Podaj 5-8 zasobów, w tym przynajmniej jeden YouTube i jeden urzad_pracy."""
     try:
@@ -999,7 +1005,9 @@ Do zdobycia (w kolejności drogi):
 {chr(10).join(todo[:20]) or '- wszystko zdobyte, zaplanuj szukanie pracy i rozwój'}
 
 Ułóż realistyczny plan nauki na 8 tygodni, skupiony na najbliższych punktach drogi. Każdy tydzień: cel i 3-5 konkretnych zadań z liczbą godzin.
-Uwzględnij darmowe materiały, kursy z urzędu pracy, ćwiczenia praktyczne i budowanie portfolio/CV.
+Uwzględnij darmowe materiały, kursy z urzędu pracy, ćwiczenia praktyczne i budowanie portfolio/CV. Nie wymyślaj konkretnych, brzmiących oficjalnie
+nazw firm/akademii/programów, których istnienia nie jesteś pewien — używaj ogólnych, realnych kategorii (platformy typu YouTube/Udemy/Coursera,
+szkolenia finansowane z KFS/bonu szkoleniowego w urzędzie pracy).
 Zwróć JSON:
 {{"hours_per_week": liczba, "summary": "1-2 zdania (max 30 słów) podsumowania planu i podejścia",
  "weeks": [{{"week": 1, "focus": "temat tygodnia", "goal": "co umiesz po tygodniu, pełne zdanie",
@@ -1078,9 +1086,18 @@ Czas na naukę: {time_desc}.
 Dla KAŻDEGO dnia nauki (pomijając dni wolne) zaplanuj 1-3 konkretne, wykonalne TEGO DNIA czynności
 (np. "Obejrzyj wprowadzenie do funkcji VLOOKUP w Excelu na YouTube"), każdą powiązaną z ID jednego z zadań z listy
 powyżej (pole task_id), chyba że to czynność ogólna (np. szukanie ofert, przegląd postępów) — wtedy task_id = null.
+WAŻNE — realizm: każda czynność musi dać się faktycznie zrobić w czasie {time_desc} JEDNEGO dnia. NIGDY nie pisz czynności
+sugerujących ukończenie w jeden dzień czegoś, co trwa tygodnie/miesiące — np. NIE "ukończ kurs X", "zdobądź certyfikat Y",
+"zdobądź doświadczenie przez staż", "weź udział w szkoleniu Z" jako jednodniowe zadanie. Zamiast tego pisz o MAŁYM, konkretnym
+kroku w stronę tego celu, np. "Obejrzyj 1. lekcję kursu o sprzedaży IT na YouTube/Udemy", "Przeczytaj ofertę szkolenia
+finansowanego z KFS i zapisz potrzebne dokumenty", "Sprawdź 3 aktualne oferty stażu w urzędzie pracy i wybierz jedną do zgłoszenia",
+"Zrób pierwsze ćwiczenie z rozdziału 2 podręcznika/kursu". NIE wymyślaj konkretnych, brzmiących oficjalnie nazw firm/akademii/programów
+szkoleniowych ani nie twierdź z pewnością, że dana oferta (np. konkretny staż) jest akurat dostępna w konkretnym mieście użytkownika —
+jeśli nie masz pewności, formułuj czynność jako sprawdzenie/wyszukanie oferty, a nie jako pewnik.
 Jeśli zadanie jest bardzo długoterminowe (studia, wieloetapowy kurs, certyfikacja trwająca miesiące), oznacz powiązaną
 czynność jako long_term=true i zaplanuj dla niej tylko JEDNĄ czynność w CAŁYM tygodniu, najlepiej w ostatnim
-dniu nauki z listy powyżej — np. "Sprawdź swoje postępy w nauce na studiach/kursie w tym tygodniu".
+dniu nauki z listy powyżej — sformułowaną jako mały krok lub przegląd postępów, NIGDY jako "ukończ"/"zdobądź" (np.
+"Sprawdź swoje postępy w nauce na studiach/kursie w tym tygodniu" albo "Zrealizuj kolejny moduł kursu").
 Nie planuj nic w dni wolne.
 Zwróć JSON z polem "weekday" = numer dnia tygodnia zgodnie z datami powyżej (0=poniedziałek, 1=wtorek, 2=środa, 3=czwartek, 4=piątek, 5=sobota, 6=niedziela):
 {{"days": [{{"weekday": 0-6, "items": [{{"title": "krótka nazwa (max 8 słów)", "description": "max 18 słów, co dokładnie zrobić",
@@ -1245,7 +1262,8 @@ Miejscowość użytkownika: {city or 'nie podano'}.
 Podpowiedz, jak dokładnie wykonać tę czynność dziś. Podaj konkretne, darmowe lub tanie materiały.
 WAŻNE — bądź KONKRETNY, nie ogólnikowy: w "steps" i "free_tips" podawaj NAZWY WŁASNE — konkretny kurs/szkolenie/kanał (np. "obejrzyj odcinek
 »Tabele przestawne krok po kroku« na kanale YouTube »Kurs Excel PL«"), a jeśli dotyczy urzędu pracy, nazwij dokładnie formę wsparcia
-(bon szkoleniowy, KFS, staż) — nie pisz ogólnie "znajdź kurs" czy "skorzystaj ze szkolenia".
+(bon szkoleniowy, KFS, staż) — nie pisz ogólnie "znajdź kurs" czy "skorzystaj ze szkolenia". Jeśli dotyczy studiów, nigdy nie wskazuj jednej
+konkretnej uczelni jako jedynej słusznej — podaj kierunek i kilka przykładowych uczelni, które go oferują.
 Zwróć JSON:
 {{"overview": "2-3 zdania (max 45 słów) czym jest ta czynność i dlaczego pomaga", "steps": ["4-6 konkretnych, nazwanych z imienia kroków, max 22 słowa każdy"],
  "free_tips": ["2-4 konkretne, nazwane z imienia sposoby zrobienia tego za darmo, max 20 słów każdy"], "specializations": [], "time_estimate": "ile to zwykle trwa",

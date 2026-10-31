@@ -1,0 +1,34 @@
+{
+  "summary": "Backend-only test of the 'studies caveat' refinement added after iteration_28: for studies/kierunek advice, AI must name a field of study + 2-3 example universities as alternatives, never one mandatory university. Tested end-to-end: register -> profile -> recommendations -> career_detail, and /roadmap/custom -> studies-type task_resources. Non-studies regression (courses/urzad pracy) re-verified unaffected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/careers/{career_id} (how_to_start)", "issue": "Content-quality observation (not a hard bug): for one tested career (Specjalista ds. analizy finansowej), how_to_start listed TWO DIFFERENT kierunki, each paired with ONE different university ('Studia finanse i rachunkowość - Uniwersytet Ekonomiczny we Wrocławiu' | 'Studia ekonomia - SGH w Warszawie') rather than ONE kierunek + 2-3 example universities for that SAME field. It does present alternatives overall (2 paths instead of 1), so it is not strictly dictating a single mandatory path, but doesn't match the exact 'same kierunek, multiple unis' pattern the prompt intends. This is LLM output variance, not a code defect - prompt text itself is correctly worded per the request."},
+      {"endpoint": "GET /api/roadmap/tasks/{task_id}/resources", "issue": "Observed one transient JSON parsing failure in backend logs during a concurrent (parallel xdist) test run: 'json.decoder.JSONDecodeError: Expecting , delimiter' causing a 502 to the client. Likely pre-existing LLM response truncation/malformed-JSON edge case unrelated to the studies-caveat change (not reproduced in sequential run). Flagging for awareness; ask_llm JSON parsing could benefit from a retry-on-parse-failure safeguard."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_studies_caveat.py", "/app/test_reports/pytest/pytest_studies_caveat.xml"],
+  "action_items": [
+    "No code fix required - prompts for task_resources, daily_item_resources, and career_detail all contain the correct 'never one mandatory university, name kierunek + 2-3 example universities' instruction as described in the request.",
+    "Optional polish: career_detail's how_to_start occasionally diversifies by listing 2 different kierunki (1 uni each) instead of 1 kierunek with 2-3 unis - could strengthen the career_detail prompt wording slightly to more explicitly mirror task_resources' clearer pattern, though this is a minor qualitative nuance, not a functional bug.",
+    "Optional: investigate occasional LLM JSON parse failures under concurrent load (unrelated to this change) for resilience."
+  ],
+  "critical_code_review_comments": [
+    "All 3 prompts (task_resources ~951-968, daily_item_resources ~1246-1255, career_detail ~678-692) correctly contain the new caveat: 'DLA STUDIOW NIGDY nie wskazuj jednej konkretnej uczelni jako jedynej słusznej drogi' + 'wymień 2-3 PRZYKŁADOWE, różne uczelnie'.",
+    "Non-studies instruction (name concrete courses/platforms/urzad pracy programs) left unchanged and verified still working in all 3 endpoints.",
+    "Caching behavior correct in all endpoints tested (career_details collection, roadmaps.milestones.tasks.resources) - repeat calls returned in <0.1s with identical payload, no re-trigger of LLM."
+  ],
+  "updated_files": ["/app/backend/tests/test_studies_caveat.py"],
+  "success_rate": {"backend": "100% (3 passed, 3 skipped as redundant/covered-elsewhere, 0 failed in final sequential run)"},
+  "seed_data_creation": "Created one fresh test user (TEST_studies_*@test.pl) with profile, recommendations, and 2 custom roadmaps (Psycholog kliniczny, Specjalista ds. kadr i plac) - test data, not production data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "test_studies_caveat.py in /app/backend/tests/ covers this feature end-to-end. NOTE: this backend's pytest.ini forces '-n 2 --dist loadscope' (parallel xdist workers) via addopts, which caused a transient 502/JSON-parse flake when hitting the real OpenAI-backed LLM endpoints concurrently across workers in the same run. Running with '-n 0' override resolved it and all tests passed cleanly - prefer sequential execution for LLM-heavy end-to-end tests here.",
+  "rca_of_issue": "Not applicable - no bug found in the reviewed code change. The studies-caveat wording is present and functioning as intended in task_resources (verified with a real 'psychologia kliniczna' studies task returning 3 distinct real Polish universities - UW, UJ, SWPS - for the SAME field as alternatives) and in career_detail (verified providing study alternatives, though format varied slightly as noted above). Non-studies regression (urzad pracy/Udemy/KFS named courses) confirmed intact."
+}
