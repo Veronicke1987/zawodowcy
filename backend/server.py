@@ -6,7 +6,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, BeforeValidator, ConfigDict
 from typing import Annotated, Any, Optional, List
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 from urllib.parse import quote, quote_plus
 from pathlib import Path
 from bson import ObjectId
@@ -102,6 +102,12 @@ class RoadmapIn(BaseModel):
 
 class TaskToggle(BaseModel):
     done: bool
+
+
+class DailyPlanSettingsIn(BaseModel):
+    time_mode: str  # "daily" | "weekly"
+    time_value: int = Field(gt=0, le=600)
+    free_days: List[int] = Field(default_factory=list)  # 0=poniedziałek .. 6=niedziela
 
 
 # ---------------------------------------------------------------- auth helpers
@@ -664,6 +670,106 @@ async def get_study_plan(path_id: Optional[str] = None, user: UserDoc = Depends(
     if sp.get("status") == "pending" and datetime.now(timezone.utc) - datetime.fromisoformat(sp["started_at"]) > timedelta(minutes=4):
         sp["status"] = "error"
     return {"status": sp.get("status"), "plan": sp.get("plan"), "career": doc.get("career"), "path_id": doc["path_id"]}
+
+
+# ---------------------------------------------------------------- daily plan (free + premium)
+WEEKDAY_NAMES_PL = ["poniedziałek", "wtorek", "środa", "czwartek", "piątek", "sobota", "niedziela"]
+
+
+def monday_of(d: date) -> date:
+    return d - timedelta(days=d.weekday())
+
+
+async def run_daily_plan(user_id: str, path_id: str, job_id: str, week_index: int, week_start: date):
+    doc = await db.roadmaps.find_one({"user_id": user_id, "path_id": path_id})
+    settings = (doc.get("daily_plan") or {}).get("settings", {})
+    free_days = {d for d in settings.get("free_days", []) if 0 <= d <= 6}
+    active_days = [i for i in range(7) if i not in free_days]
+    pending = [{"id": t["id"], "title": t["title"], "type": t.get("type", "other")}
+               for m in doc.get("milestones", []) for t in m.get("tasks", []) if not t.get("done")]
+    time_desc = (f"{settings.get('time_value')} minut dziennie w dni nauki" if settings.get("time_mode") == "daily"
+                 else f"{settings.get('time_value')} godzin tygodniowo, rozłożone elastycznie na dni nauki")
+    prompt = f"""Ścieżka kariery: {doc['career']['title']}.
+Zadania do zdobycia (z ID), w kolejności drogi:
+{json.dumps(pending[:25], ensure_ascii=False)}
+
+Dostępne dni nauki w tym tygodniu: {', '.join(WEEKDAY_NAMES_PL[i] for i in active_days) or 'brak (wszystkie dni wolne)'}.
+Czas na naukę: {time_desc}.
+
+Dla KAŻDEGO dostępnego dnia nauki (pomijając dni wolne) zaplanuj 1-3 konkretne, wykonalne TEGO DNIA czynności
+(np. "Obejrzyj wprowadzenie do funkcji VLOOKUP w Excelu na YouTube"), każdą powiązaną z ID jednego z zadań z listy
+powyżej (pole task_id), chyba że to czynność ogólna (np. szukanie ofert, przegląd postępów) — wtedy task_id = null.
+Jeśli zadanie jest bardzo długoterminowe (studia, wieloetapowy kurs, certyfikacja trwająca miesiące), oznacz powiązaną
+czynność jako long_term=true i zaplanuj dla niej tylko JEDNĄ czynność w CAŁYM tygodniu (najlepiej w niedzielę, jeśli
+to dzień nauki, inaczej w ostatnim dostępnym dniu) — np. "Sprawdź swoje postępy w nauce na studiach/kursie w tym tygodniu".
+Nie planuj nic w dni wolne.
+Zwróć JSON:
+{{"days": [{{"weekday": 0-6, "items": [{{"title": "krótka nazwa", "description": "1 zdanie co dokładnie zrobić",
+            "minutes": liczba, "task_id": "id z listy lub null", "long_term": true/false}}]}}]}}"""
+    try:
+        data = await ask_llm(ANALYSIS_MODEL, SYSTEM_PL, prompt)
+        by_weekday = {d.get("weekday"): d.get("items", []) for d in data.get("days", [])}
+        days_out = []
+        for i in range(7):
+            d = week_start + timedelta(days=i)
+            is_free = i in free_days
+            items = []
+            if not is_free:
+                for it in by_weekday.get(i, []):
+                    items.append({"id": uuid.uuid4().hex[:10], "title": it.get("title", ""), "description": it.get("description", ""),
+                                  "minutes": it.get("minutes"), "milestone_task_id": it.get("task_id"),
+                                  "long_term": bool(it.get("long_term")), "done": False})
+            days_out.append({"date": d.isoformat(), "weekday": i, "free": is_free, "items": items})
+        week = {"index": week_index, "start_date": week_start.isoformat(), "days": days_out}
+        await db.roadmaps.update_one({"user_id": user_id, "path_id": path_id, "daily_plan.job_id": job_id},
+                                     {"$set": {"daily_plan.status": "ready"}, "$push": {"daily_plan.weeks": week}})
+    except Exception as e:
+        logger.exception("daily plan failed")
+        await db.roadmaps.update_one({"user_id": user_id, "path_id": path_id, "daily_plan.job_id": job_id},
+                                     {"$set": {"daily_plan.status": "error", "daily_plan.error": str(e)[:200]}})
+
+
+@api.post("/roadmap/daily-plan/settings")
+async def set_daily_plan_settings(data: DailyPlanSettingsIn, path_id: Optional[str] = None, user: UserDoc = Depends(current_user)):
+    if data.time_mode not in ("daily", "weekly"):
+        raise HTTPException(400, "Nieprawidłowy tryb czasu.")
+    doc = await get_path(user.id, path_id, {"_id": 0, "path_id": 1, "status": 1})
+    if not doc or doc["status"] != "ready":
+        raise HTTPException(400, "Najpierw wybierz ścieżkę i poczekaj, aż droga będzie gotowa.")
+    free_days = sorted({d for d in data.free_days if 0 <= d <= 6})
+    if len(free_days) >= 7:
+        raise HTTPException(400, "Zostaw przynajmniej jeden dzień nauki w tygodniu.")
+    settings = {"time_mode": data.time_mode, "time_value": data.time_value, "free_days": free_days}
+    job_id = uuid.uuid4().hex
+    week_start = monday_of(date.today())
+    await db.roadmaps.update_one({"user_id": user.id, "path_id": doc["path_id"]},
+                                 {"$set": {"daily_plan": {"settings": settings, "status": "pending", "job_id": job_id, "weeks": [], "started_at": now_iso()}}})
+    spawn(run_daily_plan(user.id, doc["path_id"], job_id, 0, week_start))
+    return {"status": "pending"}
+
+
+@api.get("/roadmap/daily-plan")
+async def get_daily_plan(path_id: Optional[str] = None, user: UserDoc = Depends(current_user)):
+    doc = await get_path(user.id, path_id, {"_id": 0, "daily_plan": 1, "career": 1, "path_id": 1})
+    if not doc or not doc.get("daily_plan"):
+        return {"status": "none"}
+    dp = doc["daily_plan"]
+    if dp.get("status") == "pending" and dp.get("started_at") and datetime.now(timezone.utc) - datetime.fromisoformat(dp["started_at"]) > timedelta(minutes=4):
+        dp["status"] = "error"
+    return {"status": dp.get("status"), "settings": dp.get("settings"), "weeks": dp.get("weeks", []),
+            "career": doc.get("career"), "path_id": doc["path_id"], "is_premium": is_premium(user)}
+
+
+@api.patch("/roadmap/daily-plan/items/{item_id}")
+async def toggle_daily_item(item_id: str, data: TaskToggle, path_id: Optional[str] = None, user: UserDoc = Depends(current_user)):
+    q: dict = {"user_id": user.id, "daily_plan.weeks.days.items.id": item_id}
+    if path_id:
+        q["path_id"] = path_id
+    res = await db.roadmaps.update_one(
+        q, {"$set": {"daily_plan.weeks.$[].days.$[].items.$[it].done": data.done}}, array_filters=[{"it.id": item_id}])
+    if not res.matched_count:
+        raise HTTPException(404, "Nie znaleziono punktu planu.")
+    return {"ok": True, "done": data.done}
 
 
 # ---------------------------------------------------------------- advisor chat

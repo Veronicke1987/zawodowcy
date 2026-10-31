@@ -125,6 +125,27 @@ export type Milestone = {
 };
 export type Roadmap = { status: "none" | "pending" | "ready" | "error"; path_id?: string; career?: Career; milestones?: Milestone[] };
 
+export type DailyItem = {
+  id: string;
+  title: string;
+  description: string;
+  minutes?: number;
+  milestone_task_id?: string | null;
+  long_term: boolean;
+  done: boolean;
+};
+export type DailyDay = { date: string; weekday: number; free: boolean; items: DailyItem[] };
+export type DailyWeek = { index: number; start_date: string; days: DailyDay[] };
+export type DailyPlanSettings = { time_mode: "daily" | "weekly"; time_value: number; free_days: number[] };
+export type DailyPlan = {
+  status: "none" | "pending" | "ready" | "error";
+  path_id?: string;
+  career?: Career;
+  settings?: DailyPlanSettings;
+  weeks?: DailyWeek[];
+  is_premium?: boolean;
+};
+
 export type Resource = { type: string; platform?: string; title: string; description: string; url: string };
 export type TaskResources = {
   overview: string;

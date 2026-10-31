@@ -1,0 +1,28 @@
+{
+  "summary": "Tested Phase 1 of the new Daily Study Plan feature (backend + frontend) plus regression on existing weekly plan, road tab, and legal pages. Backend: wrote /app/backend/tests/test_iter15_daily_plan.py (7 tests) - all PASS. Verified POST /api/roadmap/daily-plan/settings rejects invalid time_mode (400), rejects free_days covering all 7 days with correct Polish error 'Zostaw przynajmniej jeden dzień nauki w tygodniu.' (400), rejects settings when user has no ready roadmap (400). GET /api/roadmap/daily-plan returns {status:'none'} for a fresh user with no roadmap, and returns full ready-plan structure (settings, 7-day weeks, free days have empty items, is_premium flag, career) for seeded user ania_t1. PATCH /api/roadmap/daily-plan/items/{id} returns 404 for unknown id, and correctly persists done=true verified via follow-up GET. Frontend (Playwright 375x667, logged in as ania_t1): /plan screen shows 'Plan dzienny' (default, active) / 'Plan tygodniowy' tab switcher; daily tab renders 7 day cards Mon-Sun with checkable items, 'co tydzień' badge visible for long_term items, free day shows 'Dzień wolny'. Tapping an item circle optimistically toggles to checkmark, counter updates (e.g. 2/9 -> 3/9), and the done state persists after a full page reload (re-fetched from backend) - no console errors, playSuccess() did not crash. 'Zmień ustawienia' button reopens the settings form correctly pre-filled with existing time_value/time_mode/free_days; 'Anuluj' returns to the ready plan view without resubmitting. Submitting the settings form with all 7 weekday chips marked free is blocked client-side with inline error 'Zostaw przynajmniej jeden dzień nauki w tygodniu.' (no network call fires, confirmed by immediate error rendering with no pending spinner). Regenerating settings with a valid subset of free days correctly re-triggers pending state -> new ready week with long_term badge. Regression: Weekly plan tab (plan-tab-weekly) still renders unaffected with its own 8-week accordion, summary, and regenerate button; Road/'Droga' tab (milestones, tasks, 17% progress bar) unaffected; /legal and /legal/privacy load without auth with readable Polish content.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter15_daily_plan.py", "/app/test_reports/pytest/pytest_iter15.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py set_daily_plan_settings/get_daily_plan/toggle_daily_item (lines 732-772) are concise and correctly scoped; toggle uses array_filters which is the right approach for updating a deeply nested array item by id across all weeks/days.",
+    "get_daily_plan's pending->error auto-timeout after 4 minutes mirrors the existing study_plan pattern exactly (code reuse consistent), logic verified by code review (not by waiting 4 real minutes, per instructions).",
+    "Minor nit (not a bug): the marketing copy on the public /legal landing-style page still describes 'Plan nauki: Tygodniowy plan kursów...' without mentioning the new daily plan — cosmetic/copy-only, not a functional regression, optional for a future polish pass.",
+    "run_daily_plan's LLM prompt correctly encodes free-day exclusion and long_term weekly-only scheduling into the prompt rather than post-filtering, which keeps the output naturally coherent (verified by observing only 1 long_term item appearing per week in test runs)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter15_daily_plan.py (new)"],
+  "success_rate": {"backend": "100% (7/7 tests)", "frontend": "100% (all requested daily-plan + regression checks passed)"},
+  "seed_data_creation": "Created 1 throwaway TEST_dp_* user via register (no roadmap, used only to verify status:'none' and settings-without-roadmap 400) - no cleanup needed as it's unreferenced going forward. ania_t1's daily_plan was regenerated multiple times during testing (settings edit flow + all-7-days validation flow) and some items were toggled done/undone; final state was restored to the original free_days=[5,6] (Sob, Nd) with time_value=20/daily before finishing, though the generated week content itself will differ slightly from before testing (new AI-generated items) since each settings save regenerates week 0 from scratch - this is expected behavior, not an issue.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Phase 1 daily plan (settings form, AI week generation respecting free days, item toggle + persistence, settings edit/cancel, client+server validation for all-7-days-free) is fully verified working on both backend and frontend with zero bugs found. Did not test: ad-gating of days 3-7, weekly-plan premium lock, streak counter, abandon-task state, milestone auto-linking sound-on-every-completion - all explicitly out of scope per Phase 1 instructions (future phases). Did not independently verify audible sound playback (headless browser) but confirmed no crash/console error when playSuccess() fires on item completion.",
+  "rca_of_issue": ""
+}
