@@ -678,12 +678,15 @@ async def career_detail(career_id: str, user: UserDoc = Depends(current_user)):
     prompt = f"""To jest odrębne, samodzielne zapytanie — dotyczy WYŁĄCZNIE poniższego jednego zawodu, nie odwołuj się do innych zawodów ani wcześniejszych rozmów.
 Zawód: {career['title']} (branża: {career.get('industry', '')}).
 
-Opisz ten zawód szczegółowo, na podstawie typowych ofert pracy w Polsce (Pracuj.pl, OLX, LinkedIn). Zwróć JSON:
+Opisz ten zawód szczegółowo, na podstawie typowych ofert pracy w Polsce (Pracuj.pl, OLX, LinkedIn). W polu "how_to_start" bądź KONKRETNY —
+nazwij z imienia realne kursy/szkolenia/platformy/kierunki studiów i wskaż gdzie ich szukać (np. "kurs »Kadry i płace od podstaw« na Platformie
+Vademecum Kadrowego", "szkolenie finansowane z KFS w urzędzie pracy", "kierunek Logistyka na studiach I stopnia"), a nie ogólniki typu
+"zrób kurs" czy "znajdź szkolenie". Zwróć JSON:
 {{"description": "3-4 zdania (max 60 słów) pełnego opisu zawodu — czym się zajmuje, w jakich firmach/branżach pracuje, jak wygląda typowy dzień",
  "daily_tasks": ["5-7 typowych codziennych zadań, pełne frazy, max 12 słów każde"],
  "pros": ["4-6 plusów, pełne frazy, max 12 słów każdy"], "cons": ["3-5 minusów, pełne frazy, max 12 słów każdy"],
  "requirements": ["6-9 typowych wymagań z ogłoszeń, krótkie frazy, np. wykształcenie, znajomość programów, prawo jazdy kat. B, języki"],
- "how_to_start": ["5-7 konkretnych kroków, max 16 słów każdy"],
+ "how_to_start": ["5-7 konkretnych, nazwanych z imienia kroków (z nazwami kursów/platform/kierunków studiów/programów urzędu pracy), max 22 słowa każdy"],
  "career_levels": ["4-5 kolejnych, REALNYCH, oficjalnie istniejących w Polsce stanowisk/stopni awansu w TYM KONKRETNYM zawodzie, od wejściowego do najwyższego — np. dla nauczyciela: nauczyciel stażysta, kontraktowy, mianowany, dyplomowany, wicedyrektor, dyrektor szkoły; dla programisty: junior, mid, senior, lead, CTO. NIE wymyślaj nazw stanowisk, których nie ma w tym zawodzie — jeśli nie masz pewności, użyj najbardziej powszechnie znanej, rzeczywistej struktury awansu."]}}"""
     try:
         detail = await ask_llm(FAST_MODEL, SYSTEM_PL, prompt)
@@ -952,14 +955,20 @@ Miejscowość użytkownika: {city or 'nie podano'}.
 Podpowiedz, jak zdobyć ten punkt. Jeśli to studia — opisz kierunki, tryby (dzienne/zaoczne/podyplomowe), możliwe specjalizacje, gdzie szukać rekrutacji.
 Jeśli to umiejętność/program (np. Excel) — kanały YouTube, platformy szkoleniowe, jak korzystać darmowo (np. Excel w przeglądarce w Microsoft 365 online),
 kursy finansowane przez urząd pracy (bon szkoleniowy, KFS), webinary.
+WAŻNE — bądź KONKRETNY, nie ogólnikowy: w "steps" i "free_tips" zawsze podawaj NAZWY WŁASNE — konkretny kurs/szkolenie, konkretną platformę
+lub kanał (np. "kurs »Excel od podstaw do zaawansowanego« na Udemy", "szkolenie kadrowo-płacowe finansowane z Krajowego Funduszu Szkoleniowego (KFS)
+w powiatowym urzędzie pracy", "kanał YouTube »ExcelPL«"), a nie ogólniki typu "znajdź kurs" czy "skorzystaj ze szkolenia". Jeśli dotyczy urzędu
+pracy, nazwij DOKŁADNIE jaki to rodzaj wsparcia (bon szkoleniowy, KFS, staż, dofinansowanie studiów podyplomowych, bon na zasiedlenie) i co trzeba
+tam zrobić (jaki wniosek, do kogo).
 Zwróć JSON:
-{{"overview": "3-4 zdania (max 55 słów) czym jest ten punkt, dlaczego jest ważny i co konkretnie zyskujesz go zdobywając",
- "steps": ["5-7 konkretnych kroków jak to zdobyć, max 20 słów każdy"],
- "free_tips": ["3-5 sposobów zrobienia tego za darmo lub taniej, max 20 słów każdy"],
+{{"overview": "3-4 zdania (max 60 słów) czym jest ten punkt, dlaczego jest ważny i co konkretnie zyskujesz go zdobywając",
+ "steps": ["5-7 konkretnych, nazwanych z imienia kroków jak to zdobyć (z nazwami kursów/platform/programów), max 24 słowa każdy"],
+ "free_tips": ["3-5 konkretnych, nazwanych z imienia sposobów zrobienia tego za darmo lub taniej, max 22 słowa każdy"],
  "specializations": ["tylko dla studiów/kursów: możliwe specjalizacje, inaczej pusta lista"],
  "time_estimate": "ile to zwykle trwa",
  "resources": [{{"type": "youtube|course|studies|urzad_pracy|webinar|certificate|article", "platform": "np. YouTube, Coursera, Udemy, LinkedIn Learning, Google",
-                "title": "nazwa zasobu", "description": "max 16 słów", "query": "fraza wyszukiwania po polsku"}}]}}
+                "title": "konkretna, realna nazwa kursu/kanału/szkolenia (nie ogólnik)", "description": "max 18 słów, co dokładnie zawiera",
+                "query": "fraza wyszukiwania po polsku"}}]}}
 Podaj 5-8 zasobów, w tym przynajmniej jeden YouTube i jeden urzad_pracy."""
     try:
         data = await ask_llm(FAST_MODEL, SYSTEM_PL, prompt)
@@ -1234,11 +1243,15 @@ Czynność z planu dnia na ścieżce kariery "{doc['career']['title']}": {item['
 Miejscowość użytkownika: {city or 'nie podano'}.
 
 Podpowiedz, jak dokładnie wykonać tę czynność dziś. Podaj konkretne, darmowe lub tanie materiały.
+WAŻNE — bądź KONKRETNY, nie ogólnikowy: w "steps" i "free_tips" podawaj NAZWY WŁASNE — konkretny kurs/szkolenie/kanał (np. "obejrzyj odcinek
+»Tabele przestawne krok po kroku« na kanale YouTube »Kurs Excel PL«"), a jeśli dotyczy urzędu pracy, nazwij dokładnie formę wsparcia
+(bon szkoleniowy, KFS, staż) — nie pisz ogólnie "znajdź kurs" czy "skorzystaj ze szkolenia".
 Zwróć JSON:
-{{"overview": "2-3 zdania (max 45 słów) czym jest ta czynność i dlaczego pomaga", "steps": ["4-6 konkretnych krok\u00f3w, max 18 słów każdy"],
- "free_tips": ["2-4 sposoby zrobienia tego za darmo, max 18 słów każdy"], "specializations": [], "time_estimate": "ile to zwykle trwa",
+{{"overview": "2-3 zdania (max 45 słów) czym jest ta czynność i dlaczego pomaga", "steps": ["4-6 konkretnych, nazwanych z imienia kroków, max 22 słowa każdy"],
+ "free_tips": ["2-4 konkretne, nazwane z imienia sposoby zrobienia tego za darmo, max 20 słów każdy"], "specializations": [], "time_estimate": "ile to zwykle trwa",
  "resources": [{{"type": "youtube|course|studies|urzad_pracy|webinar|certificate|article", "platform": "np. YouTube, Coursera, Google",
-                "title": "nazwa zasobu", "description": "max 16 słów", "query": "fraza wyszukiwania po polsku"}}]}}
+                "title": "konkretna, realna nazwa kursu/kanału/szkolenia (nie ogólnik)", "description": "max 18 słów, co dokładnie zawiera",
+                "query": "fraza wyszukiwania po polsku"}}]}}
 Podaj 4-6 zasob\u00f3w, w tym przynajmniej jeden YouTube."""
     try:
         data = await ask_llm(FAST_MODEL, SYSTEM_PL, prompt)

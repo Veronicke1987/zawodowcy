@@ -1,0 +1,40 @@
+{
+  "summary": "Backend-only content-quality test of the 'require concrete named specifics (courses/platforms/urzad pracy programs)' prompt change in server.py for career_detail (how_to_start), task_resources, and daily_item_resources. Full flow with fresh TEST_ user: register -> PUT /api/profile -> POST /api/recommendations/generate (poll) -> GET /api/careers/{id} fresh -> POST /api/roadmap/custom ('kadrowa', poll) -> found task type='course' ('Podstawy prawa pracy') -> GET /api/roadmap/tasks/{id}/resources fresh+cached -> daily-plan settings+GET (poll) -> searched for item without milestone_task_id for GET daily-plan/items/{id}/resources. 5/6 assertions passed, 1 skipped (no qualifying daily-plan item generated this run - non-deterministic LLM output, not a bug).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter28_concrete_specifics.py",
+    "/app/test_reports/pytest/pytest_results_iter28.xml"
+  ],
+  "action_items": [
+    "None required - prompt changes verified working as intended. Optional: on a future retest, generate 2-3 weeks of daily plan (or try a different custom job) to catch an item with task_id=null and confirm daily_item_resources concreteness for that specific code path (the fallback path when item.milestone_task_id is absent) since this run's LLM happened to link every daily item to a milestone task."
+  ],
+  "critical_code_review_comments": [
+    "career_detail prompt (server.py ~678-690): verified the new instruction 'bądź KONKRETNY — nazwij z imienia realne kursy/szkolenia/platformy/kierunki studiów' is present exactly as described, and how_to_start field schema correctly requires 'konkretnych, nazwanych z imienia kroków'. LIVE OUTPUT for 'Asystentka biura': 5/7 how_to_start items named specific courses/platforms (e.g. 'Kurs „Asystentka biura” na platformie eduweb.pl', 'Szkolenie „Kadry i płace od podstaw” na Vademecum Kadrowym', 'Kursy finansowane z KFS organizowane przez lokalne urzędy pracy') vs 2 slightly more generic (studia I stopnia na uczelni wyższej, program praktyk przez agencje HR) - overall a clear improvement from vague 'zrób kurs' style output.",
+    "task_resources prompt (server.py ~949-972): verified 'WAŻNE — bądź KONKRETNY' instruction with explicit urzad_pracy naming requirement (bon szkoleniowy, KFS, staż, dofinansowanie studiów podyplomowych, bon na zasiedlenie) present exactly as spec'd. LIVE OUTPUT for task 'Podstawy prawa pracy' (type=course) was excellent: ALL 7/7 steps named specific courses/platforms (e.g. 'kurs »Prawo pracy i ubezpieczenia społeczne« na platformie StrefaKursów.pl', 'bon szkoleniowy w Powiatowym Urzędzie Pracy w Krakowie', 'kurs podyplomowy ... na Uniwersytecie Jagiellońskim', 'kurs »Kadry i płace – od podstaw« na platformie Udemy'); 3/5 free_tips named specifics (webinary PIP, Navoica.pl, YouTube kanał 'Dział Kadrowy'); 8/8 resource titles were concrete named items across course/urzad_pracy/webinar/studies/youtube/article types, each with a resolvable url. This is a strong, clear improvement over generic advice and matches the review request's intent precisely.",
+    "daily_item_resources prompt (server.py ~1240-1255): code review confirms the same style of 'WAŻNE — bądź KONKRETNY' instruction is present scaled to a single day's activity, matching the career_detail/task_resources pattern. Could not exercise the no-milestone-task-id branch this run because every daily-plan item the LLM generated linked to a milestone task (task_id non-null) - this is normal/expected variability in run_daily_plan's output, not a defect; the fallback path previously verified working in iteration_27 (richness) and now has the same concrete-naming instruction added per code inspection.",
+    "Caching confirmed unchanged and working: task_resources fresh call took 6.85s (real LLM round trip), cached repeat 0.07s with byte-identical JSON payload - no new LLM call triggered on repeat GET.",
+    "No 500/502 errors in backend logs across the full flow; all LLM JSON responses parsed cleanly (no markdown wrapping); all text confirmed Polish with natural phrasing.",
+    "Isolation instructions ('To jest odrębne, samodzielne zapytanie...') remain intact in all three prompts per code inspection - consistent with prior iteration audits (quick sanity check only, not re-verified in depth per request)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter28_concrete_specifics.py (new pytest file with heuristic concreteness checks: named-platform keywords, urzad-pracy program keywords, quoted course-name detection)"
+  ],
+  "success_rate": {
+    "backend": "83% (5/6 tests passed, 1 skipped due to non-deterministic LLM daily-plan generation not producing a task_id=null item this run - not a failure)",
+    "frontend": "not tested (backend-only scope per request)"
+  },
+  "seed_data_creation": "Created one TEST_iter28_* throwaway user via /api/auth/register with profile, recommendations, a custom roadmap for 'kadrowa', and a daily plan; not cleaned up (low-risk, prefixed test data).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "test_iter28_concrete_specifics.py must be run with `-n 0` (serial) like the iter27 test, since pytest.ini defaults to -n 2 --dist loadscope which can break ordering for shared class state across workers - override explicitly. EXPO_BACKEND_URL must be exported from frontend/.env's EXPO_PUBLIC_BACKEND_URL value before running (it is not set in the shell env by default). All three prompt changes (career_detail.how_to_start, task_resources, daily_item_resources) verified present in code exactly as specified in the review request, and the live LLM output for career_detail and task_resources genuinely reads as concrete/named rather than generic - clear improvement confirmed. The daily_item_resources no-milestone-task_id branch was not exercised this run (skipped) purely because of LLM randomness in plan generation; code review shows the identical instruction pattern was added there too.",
+  "rca_of_issue": "No bugs found. The 'concrete specifics' prompt change behaves as intended: task_resources output in particular was exemplary, naming real-sounding Polish training platforms (StrefaKursów.pl, Udemy, Navoica.pl), specific urzad pracy support types (bon szkoleniowy, KFS via Powiatowy Urząd Pracy), and quoted course/channel names throughout steps, free_tips, and resource titles. career_detail.how_to_start showed similar but slightly less uniform concreteness (5/7 items named, 2/7 still somewhat generic) - acceptable per the qualitative judgment requested, as the majority of items are clearly specific and the output is a marked improvement over the prior vague phrasing."
+}
