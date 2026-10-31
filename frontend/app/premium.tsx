@@ -13,14 +13,13 @@ import { playSuccess } from "@/src/sound";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 const PLANS = [
-  { key: "monthly", label: "Miesięczny", price: "19,99 zł", per: "/ miesiąc", note: "Anuluj w każdej chwili" },
+  { key: "monthly", label: "Miesięczny", price: "19 zł", per: "/ miesiąc", note: "Anuluj w każdej chwili" },
   { key: "yearly", label: "Roczny", price: "149,99 zł", per: "/ rok", note: "Tylko 12,50 zł miesięcznie · oszczędzasz 37%" },
 ] as const;
 
 const PERKS: { icon: IconName; title: string; text: string }[] = [
   { icon: "eye-off", title: "Bez reklam", text: "Żadnych reklam przy ścieżkach, planie nauki ani w trakcie korzystania." },
-  { icon: "flash", title: "Wszystko od razu", text: "Ścieżki kariery i plan nauki generujesz bez oglądania reklam." },
-  { icon: "chatbubbles", title: "Więcej rozmów z doradcą", text: "Do 10 wiadomości dziennie — dwa razy więcej niż w darmowej wersji." },
+  { icon: "trending-up", title: "25 nowych ścieżek miesięcznie", text: "Twórz do 25 nowych ścieżek kariery w miesiącu bez reklam — plan tygodniowy i dzienny do nich zawsze gratis, bez limitu." },
 ];
 
 export default function Premium() {
@@ -73,7 +72,7 @@ export default function Premium() {
             <Ionicons name="diamond" size={34} color={colors.brandPrimary} />
           </View>
           <Text style={styles.heroTitle}>Zawodowcy Premium</Text>
-          <Text style={styles.heroSub}>Szybciej do nowego zawodu — z planem i doradcą na każdy dzień.</Text>
+          <Text style={styles.heroSub}>Szybciej do nowego zawodu — ze ścieżką i planem na każdy dzień.</Text>
         </LinearGradient>
 
         <View style={styles.body}>
@@ -82,7 +81,9 @@ export default function Premium() {
               <Ionicons name="checkmark-circle" size={24} color={colors.success} />
               <View style={{ flex: 1 }}>
                 <Txt variant="heading">Masz aktywne Premium</Txt>
-                <Txt variant="caption">Wszystkie funkcje są odblokowane.</Txt>
+                <Txt variant="caption" testID="premium-usage">
+                  Wykorzystano {user?.roadmap_generations_used ?? 0} z {user?.roadmap_generations_limit ?? 25} nowych ścieżek w tym miesiącu
+                </Txt>
               </View>
             </View>
           ) : null}

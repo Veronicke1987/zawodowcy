@@ -10,7 +10,8 @@ import Svg, { Circle, Path } from "react-native-svg";
 
 import { useAds } from "@/src/ads/AdsProvider";
 import { api, Career, PathsResponse } from "@/src/api";
-import { Badge, Button, ErrorBox, IconButton, Ionicons, IconName, PressableScale, Txt } from "@/src/components/ui";
+import { useAuth } from "@/src/auth";
+import { Badge, Button, ErrorBox, IconButton, Ionicons, IconName, AiNote, PressableScale, Txt } from "@/src/components/ui";
 import { queryClient } from "@/src/query-client";
 import { playSuccess } from "@/src/sound";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
@@ -82,12 +83,13 @@ export default function CareerDetail() {
       return;
     }
     // re-activating an existing path generates nothing, so no ad
-    if (!existing && !(await watchAd("zbudować swoją ścieżkę kariery"))) return;
+    if (!existing && !(await watchRoadmapAd("zbudować swoją ścieżkę kariery"))) return;
     setChoosing(true);
     try {
       await api("/roadmap", { method: "POST", body: { career_id: id } });
       queryClient.invalidateQueries({ queryKey: ["roadmap"] });
       queryClient.invalidateQueries({ queryKey: ["paths"] });
+      refresh();
       setCelebrate(true);
       playSuccess();
       timer.current = setTimeout(() => {
@@ -104,7 +106,8 @@ export default function CareerDetail() {
 
   const career = q.data?.career;
   const d = q.data?.detail;
-  const { showAds, watchAd } = useAds();
+  const { showAds, watchRoadmapAd } = useAds();
+  const { refresh } = useAuth();
   const paths = useQuery({ queryKey: ["paths", "detail"], queryFn: () => api<PathsResponse>("/paths") });
   const atLimit = (paths.data?.paths.length ?? 0) >= (paths.data?.limit ?? 3);
   const alreadyMine = !!paths.data?.paths.some((p) => p.title === q.data?.career?.title);
@@ -197,6 +200,7 @@ export default function CareerDetail() {
               </Section>
             </Animated.View>
           ) : null}
+          <AiNote style={{ marginTop: spacing.lg }} />
         </View>
       </ScrollView>
 

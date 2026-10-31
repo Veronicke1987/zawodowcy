@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAds } from "@/src/ads/AdsProvider";
 import { api, DailyItem, DailyPlan, StudyPlan, TaskResources } from "@/src/api";
-import { Badge, Button, Chip, ErrorBox, IconButton, Ionicons, PressableScale, Txt } from "@/src/components/ui";
+import { AiNote, Badge, Button, Chip, ErrorBox, IconButton, Ionicons, PressableScale, Txt } from "@/src/components/ui";
 import { Block, ResourceRow, Sheet, useTaskSheetStyles } from "@/src/components/TaskSheet";
 import { queryClient } from "@/src/query-client";
 import { playSuccess } from "@/src/sound";
@@ -54,7 +54,7 @@ function DailyPlanTab() {
   const insets = useSafeAreaInsets();
   const styles = useStyles();
   const { colors } = useTheme();
-  const { watchAd } = useAds();
+  const { watchAd, showAds } = useAds();
   const q = useQuery({
     queryKey: ["daily-plan"],
     queryFn: () => api<DailyPlan>("/roadmap/daily-plan"),
@@ -92,6 +92,7 @@ function DailyPlanTab() {
     const n = parseInt(value, 10);
     if (!n || n <= 0) return setError("Podaj liczbę większą od zera.");
     if (freeDays.length >= 7) return setError("Zostaw przynajmniej jeden dzień nauki w tygodniu.");
+    if (!(await watchAd("ułożyć Twój plan nauki"))) return;
     setStarting(true);
     try {
       await api("/roadmap/daily-plan/settings", { method: "POST", body: { time_mode: mode, time_value: n, free_days: freeDays } });
@@ -137,6 +138,7 @@ function DailyPlanTab() {
 
   const generateNextWeek = async () => {
     setError("");
+    if (!(await watchAd("wygenerować plan na kolejny tydzień"))) return;
     setGeneratingNext(true);
     try {
       await api("/roadmap/daily-plan/next-week", { method: "POST" });
@@ -202,6 +204,11 @@ function DailyPlanTab() {
         ) : null}
 
         {error ? <ErrorBox testID="daily-plan-form-error" message={error} /> : null}
+        {showAds ? (
+          <Text style={styles.adNotice} testID="daily-plan-ad-notice">
+            Przed ułożeniem planu zobaczysz krótką reklamę.
+          </Text>
+        ) : null}
         <Button testID="daily-plan-create-button" title={data?.status === "ready" ? "Zapisz i ułóż ten tydzień od nowa" : "Ułóż mój plan dzienny"} icon="sparkles" onPress={submit} loading={starting} />
         {data?.status === "ready" ? (
           <Button testID="daily-plan-cancel-edit" title="Anuluj" variant="ghost" onPress={() => setEditMode(false)} />
@@ -244,6 +251,7 @@ function DailyPlanTab() {
           {data!.settings?.time_mode === "daily" ? `${data!.settings?.time_value} min dziennie` : `${data!.settings?.time_value} h tygodniowo`}
         </Txt>
       </View>
+      <AiNote />
 
       {(week?.days || []).map((d) => {
         const isToday = d.date === today;
@@ -302,10 +310,17 @@ function DailyPlanTab() {
             <Txt variant="caption">Generowanie kolejnego tygodnia…</Txt>
           </View>
         ) : data!.can_generate_next ? (
-          <Button testID="daily-next-week-button" title="Wygeneruj kolejny tydzień" icon="arrow-forward-circle" onPress={generateNextWeek} loading={generatingNext} />
+          <>
+            {showAds ? (
+              <Text style={styles.adNotice} testID="daily-next-week-ad-notice">
+                Przed nowym tygodniem zobaczysz krótką reklamę.
+              </Text>
+            ) : null}
+            <Button testID="daily-next-week-button" title="Wygeneruj kolejny tydzień" icon="arrow-forward-circle" onPress={generateNextWeek} loading={generatingNext} />
+          </>
         ) : (
           <Txt variant="caption" style={{ textAlign: "center" }} testID="daily-next-week-locked">
-            Kolejny tydzień odblokuje się w sobotę bieżącego tygodnia.
+            Kolejny tydzień odblokuje się bliżej końca tego tygodnia.
           </Txt>
         )
       ) : null}
@@ -357,6 +372,7 @@ function DailyItemSheet({ item, onClose }: { item: DailyItem | null; onClose: ()
                   ))}
                 </View>
               ) : null}
+              <AiNote />
             </>
           ) : null}
         </View>
@@ -479,6 +495,7 @@ function WeeklyPlanTab() {
             </View>
           ) : null}
           <Button testID="plan-regenerate-button" title="Ułóż nowy plan" variant="ghost" icon="refresh" onPress={create} loading={starting} />
+          <AiNote />
         </>
       ) : (
         <View style={styles.center} testID="plan-empty">
@@ -504,6 +521,7 @@ const useStyles = makeStyles((c) => ({
   tabText: { fontFamily: fonts.bold, fontSize: 13, color: c.onSurface },
   tabTextActive: { color: c.onBrandPrimary },
   upsell: { alignItems: "center", gap: spacing.md, padding: spacing.xl, borderRadius: radius.lg, backgroundColor: c.brandTertiary },
+  adNotice: { fontFamily: fonts.medium, fontSize: 12, lineHeight: 17, color: c.muted, textAlign: "center" },
   center: { alignItems: "center", gap: spacing.md, paddingVertical: spacing.xxl, paddingHorizontal: spacing.xl },
   summary: { gap: spacing.sm, padding: spacing.lg, borderRadius: radius.lg, backgroundColor: c.surfaceSecondary },
   week: { padding: spacing.lg, borderRadius: radius.lg, backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border },

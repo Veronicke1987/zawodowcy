@@ -1,16 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, Milestone, PathsResponse, Roadmap, Task } from "@/src/api";
 import { milestoneDone, RoadMap } from "@/src/components/RoadMap";
 import { MilestoneSheet, TaskSheet } from "@/src/components/TaskSheet";
-import { Button, ErrorBox, IconButton, Ionicons, Txt } from "@/src/components/ui";
+import { Button, ErrorBox, IconButton, Ionicons, AiNote, Txt } from "@/src/components/ui";
 import { usesNativeTabs } from "@/src/navigation";
 import { queryClient } from "@/src/query-client";
+import { maybeRequestReview } from "@/src/review";
 import { playSuccess } from "@/src/sound";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
@@ -57,6 +58,16 @@ export default function RoadScreen() {
   const currentTask = taskId ? allTasks.find((t) => t.id === taskId) || null : null;
   const currentMs = ms ? milestones.find((m) => m.id === ms.m.id) || null : null;
 
+  // Ask for a store rating at two positive, low-friction moments: the first time any
+  // roadmap finishes building, and the first time a path reaches 100%. Each only ever
+  // fires once (see src/review.ts), and both are capped/cooled-down together app-wide.
+  useEffect(() => {
+    if (data?.status === "ready") maybeRequestReview("first_roadmap");
+  }, [data?.status]);
+  useEffect(() => {
+    if (data?.status === "ready" && allTasks.length > 0 && pct === 100) maybeRequestReview("path_complete");
+  }, [pct, data?.status, allTasks.length]);
+
   const toggle = async (t: Task) => {
     const next = !t.done;
     const prev = queryClient.getQueryData<Roadmap>(["roadmap"]);
@@ -102,16 +113,13 @@ export default function RoadScreen() {
             </Text>
           </View>
         ) : null}
+        {data?.status === "ready" ? <AiNote style={{ marginTop: spacing.sm }} /> : null}
       </View>
       {data && data.status !== "none" ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow} contentContainerStyle={styles.chipContent}>
-          <Pressable testID="road-open-chat" onPress={() => router.push("/chat")} style={[styles.action, { backgroundColor: colors.brandPrimary }]}>
-            <Ionicons name="chatbubbles" size={16} color={colors.onBrandPrimary} />
-            <Text style={[styles.actionText, { color: colors.onBrandPrimary }]}>Doradca</Text>
-          </Pressable>
-          <Pressable testID="road-open-plan" onPress={() => router.push("/plan")} style={styles.action}>
-            <Ionicons name="calendar-outline" size={16} color={colors.onSurface} />
-            <Text style={styles.actionText}>Plan nauki</Text>
+          <Pressable testID="road-open-plan" onPress={() => router.push("/plan")} style={[styles.action, { backgroundColor: colors.brandPrimary }]}>
+            <Ionicons name="calendar-outline" size={16} color={colors.onBrandPrimary} />
+            <Text style={[styles.actionText, { color: colors.onBrandPrimary }]}>Plan nauki</Text>
           </Pressable>
           {(paths.data?.paths || []).map((p) => (
             <Pressable
@@ -126,14 +134,6 @@ export default function RoadScreen() {
               <Text style={styles.actionSub}>{p.progress}%</Text>
             </Pressable>
           ))}
-          <Pressable
-            testID="road-add-path"
-            onPress={() => router.navigate("/(tabs)")}
-            style={[styles.action, { borderStyle: "dashed" }]}
-          >
-            <Ionicons name="add" size={16} color={colors.onSurface} />
-            <Text style={styles.actionText}>Dodaj ścieżkę</Text>
-          </Pressable>
         </ScrollView>
       ) : null}
 

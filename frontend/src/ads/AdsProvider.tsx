@@ -19,13 +19,17 @@ type AdsCtx = {
   showAds: boolean;
   // Shows a rewarded ad (free users). Resolves true when the action may proceed.
   watchAd: (reason: string) => Promise<boolean>;
+  // Same, but specifically for generating a brand-new career path: Premium users skip the
+  // ad UNLESS they've already used their monthly quota of free path generations, in which
+  // case they also see a (clearly-labelled) rewarded ad to continue.
+  watchRoadmapAd: (reason: string) => Promise<boolean>;
 };
 
-const Ctx = createContext<AdsCtx>({ showAds: false, watchAd: async () => true });
+const Ctx = createContext<AdsCtx>({ showAds: false, watchAd: async () => true, watchRoadmapAd: async () => true });
 export const useAds = () => useContext(Ctx);
 
 type Stage = "intro" | "playing" | "thanks";
-type Sim = { kind: "rewarded" | "interstitial"; reason?: string; stage: Stage; resolve: (ok: boolean) => void };
+type Sim = { kind: "rewarded" | "interstitial"; reason?: string; stage: Stage; resolve: (ok: boolean) => void; premiumQuota?: boolean };
 
 export function AdsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -96,6 +100,30 @@ export function AdsProvider({ children }: { children: React.ReactNode }) {
     [showAds],
   );
 
+  // Premium users get PREMIUM_MONTHLY_GENERATIONS new career-path generations/month ad-free
+  // (tracked server-side); past that, they see the same rewarded ad free users always see.
+  const quotaExceeded = !!user?.is_premium && (user.roadmap_generations_used ?? 0) >= (user.roadmap_generations_limit ?? Infinity);
+  const watchRoadmapAd = useCallback(
+    (reason: string) => {
+      if (!user?.is_premium) return watchAd(reason);
+      if (!quotaExceeded) return Promise.resolve(true);
+      return new Promise<boolean>((resolve) => {
+        busy.current = true;
+        setSim({
+          kind: "rewarded",
+          reason,
+          premiumQuota: true,
+          stage: "intro",
+          resolve: (ok) => {
+            busy.current = false;
+            resolve(ok);
+          },
+        });
+      });
+    },
+    [user?.is_premium, quotaExceeded, watchAd],
+  );
+
   // Interstitial roughly every 5 minutes of active use, never on top of another ad.
   useEffect(() => {
     if (!showAds) return;
@@ -122,7 +150,7 @@ export function AdsProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <Ctx.Provider value={{ showAds, watchAd }}>
+    <Ctx.Provider value={{ showAds, watchAd, watchRoadmapAd }}>
       {children}
       <AdModal
         sim={sim}
@@ -212,11 +240,13 @@ function AdModal({
           <View style={styles.center}>
             <Ionicons name={rewarded ? "gift" : "megaphone"} size={56} color={colors.brandPrimary} />
             <Txt variant="title" style={{ textAlign: "center" }}>
-              {rewarded ? "Obejrzyj reklamę, aby odebrać nagrodę" : "Za chwilę krótka reklama"}
+              {rewarded ? (view.premiumQuota ? "Wykorzystano limit ścieżek w tym miesiącu" : "Obejrzyj reklamę, aby odebrać nagrodę") : "Za chwilę krótka reklama"}
             </Txt>
             <Txt style={{ textAlign: "center" }} testID="ad-intro-text">
               {rewarded
-                ? `Aby ${view.reason ?? "kontynuować i zobaczyć wyniki"}, obejrzyj krótką reklamę lub przejdź na Premium.`
+                ? view.premiumQuota
+                  ? `Masz już Premium, ale wykorzystano w tym miesiącu limit nowych ścieżek kariery. Obejrzyj krótką reklamę, aby ${view.reason ?? "kontynuować"} — limit odnowi się w przyszłym miesiącu.`
+                  : `Aby ${view.reason ?? "kontynuować i zobaczyć wyniki"}, obejrzyj krótką reklamę lub przejdź na Premium.`
                 : "Reklamy pomagają utrzymać aplikację za darmo. Z Premium nie zobaczysz żadnych reklam."}
             </Txt>
           </View>
@@ -250,7 +280,9 @@ function AdModal({
           {view.stage === "intro" ? (
             <>
               {rewarded ? <Button testID="ad-intro-watch-button" title="Obejrzyj reklamę" icon="play" onPress={onWatch} /> : null}
-              <Button testID="ad-go-premium" title="Przejdź na Premium" variant={rewarded ? "ghost" : "primary"} icon="diamond" onPress={onPremium} />
+              {!view.premiumQuota ? (
+                <Button testID="ad-go-premium" title="Przejdź na Premium" variant={rewarded ? "ghost" : "primary"} icon="diamond" onPress={onPremium} />
+              ) : null}
             </>
           ) : view.stage === "thanks" && rewarded ? (
             <Button testID="ad-thanks-continue-button" title="Super, kontynuuj" icon="checkmark" onPress={onThanksDone} />

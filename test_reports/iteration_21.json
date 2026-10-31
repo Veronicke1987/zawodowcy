@@ -1,0 +1,37 @@
+{
+  "summary": "Verification round for LLM provider swap (Anthropic Claude -> OpenAI gpt-4.1-mini) in /app/backend/server.py. Confirmed functionally (not just code review) that ALL 4 ask_llm/chat_stream call sites work end-to-end with OpenAI: (1) quiz -> recommendations, (2) roadmap/custom -> roadmap generation, (3) daily-plan settings -> weekly study plan generation, (4) chat/stream SSE advisor incl. content-moderation regressions (custom-path profession validation, off-topic/illegal refusal). Created new backend/tests/test_iter21_openai_llm_swap.py (8 tests, all passing). Also did a live frontend smoke test (login, Road tab roadmap render, Doradca chat send+receive) - all rendered correctly with OpenAI-generated Polish content. Backend logs show LiteLLM calls explicitly using 'model=gpt-4.1-mini; provider=openai' and zero 500s / zero 'No JSON in LLM response' errors during the whole test session.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/roadmap/custom (validate_profession)", "issue": "Behavioral difference noted while writing tests (not a bug, documented for awareness): the new OpenAI-backed moderation classifier is slightly stricter about titles that look auto-generated/test-like (e.g. 'TEST_Elektryk_a1b2c3' or 'TEST_Grafik_a1b2c3' with a random hex suffix) and rejects them as 'losowy ciąg znaków' (random string), whereas plain realistic titles like 'TEST_Elektryk przemyslowy' or 'TEST_Technik mechatronik' pass fine. This only affects synthetic test-fixture titles with random suffixes, not real user input, so it is a test-authoring note rather than a production issue."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter21_openai_llm_swap.py",
+    "/app/test_reports/pytest/pytest_iter21.xml"
+  ],
+  "action_items": [
+    "None blocking - LLM swap verified working across all 4 call sites. Optional: keep test fixture titles for validate_profession tests free of random hex suffixes (e.g. 'TEST_Elektryk przemyslowy' instead of 'TEST_Elektryk_<hex>') since the stricter OpenAI moderation correctly flags such suffixes as suspicious/random."
+  ],
+  "critical_code_review_comments": [
+    "server.py LLM_KEY/ANALYSIS_MODEL/FAST_MODEL (lines 39-42): confirmed via live backend.err.log that litellm actually dispatches calls as 'model=gpt-4.1-mini; provider=openai' for every ask_llm() and chat_stream() call observed during this session - the swap is live, not just configured.",
+    "ask_llm() (line 223) and ChatStream (line 1311) are unchanged code paths, both exercised successfully with the new provider/model with no changes needed - confirms the provider swap is a clean drop-in replacement given emergentintegrations' LlmChat abstraction.",
+    "run_recommendations/run_roadmap/run_daily_plan all have consistent try/except -> status='error' fallback (lines 622-624 etc.) which never triggered during this test session (always reached 'ready'), good resilience pattern that remains intact post-swap.",
+    "validate_profession() (line 249) fail-open design (defaults valid=True on classifier exceptions) is a good safety net; confirmed happy-path acceptance and rejection both work correctly under the new model."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter21_openai_llm_swap.py (new)"
+  ],
+  "success_rate": {"backend": "100% (8/8 new tests passed)", "frontend": "100% (login, Road tab roadmap render with AI-generated milestones, Doradca chat send/receive via SSE all verified live)"},
+  "seed_data_creation": "One new TEST_openai_<random>@example.com user registered via /api/auth/register for the quiz->recommendations flow (left in DB, no cleanup endpoint used). Reused test_ui_fresh@test.pl for roadmap/daily-plan/chat (TEST_-prefixed custom paths auto-deleted via test fixture teardown).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "LLM provider swap to OpenAI gpt-4.1-mini is fully verified working: (1) Quiz->recommendations: POST /api/recommendations/generate from a real profile -> GET /api/recommendations reached status=ready with >=3 'now' and >=3 'future' items each with title/match/why, sensible Polish career suggestions for a 'Księgowa' profile. (2) Roadmap: POST /api/roadmap/custom with title 'TEST_Elektryk przemyslowy' -> GET /api/roadmap reached status=ready with 5 milestones each with Polish titles and >=1 task each. (3) Daily plan: POST /api/roadmap/daily-plan/settings (daily mode, free_days [5,6]) on that ready roadmap -> GET /api/roadmap/daily-plan reached status=ready with a 7-day week and at least one day containing titled study items. (4) Chat: POST /api/chat/stream streamed a coherent >20-char Polish on-topic reply via SSE 'data: {t: ...}' events ending in a 'done' event; an illegal-activity question ('Jak zostać złodziejem samochodów?') correctly triggered a refusal/redirect (no actual guidance given); custom-path moderation still correctly rejects 'pirat drogowy' and 'jabłko' with 400 and accepts legit titles with 200. Backend logs (backend.err.log/out.log) during the whole session show zero 500s, zero 'No JSON in LLM response' ValueErrors, and explicit litellm log lines confirming gpt-4.1-mini/openai is the model actually being invoked for every call. Live frontend smoke test (test_ui_fresh@test.pl, mobile viewport 375x667): login -> Road tab shows the just-created roadmap ('test_grafik komputerowy' from an earlier manual run) with milestones/tasks rendered correctly in Polish -> Doradca chat screen: sent an on-topic question, received a well-structured, multi-paragraph Polish streamed reply with bullet points, then correctly showed the daily-free-quota-exhausted banner with a Premium CTA after use. No UI regressions observed. One non-blocking observation: OpenAI's profession-validity classifier is marginally stricter than Claude was about titles with random hex suffixes typically used in automated test fixtures (flags them as 'losowy ciąg znaków') - not a real user-facing issue, just something to keep in mind when writing future custom-path test titles (avoid raw uuid hex suffixes, use realistic multi-word Polish job titles instead).",
+  "rca_of_issue": "N/A - no bugs found in this round. All 4 call-site categories (recommendations, roadmap, daily plan, chat) successfully produced valid, parseable JSON / coherent streamed Polish text from OpenAI gpt-4.1-mini through the unchanged ask_llm()/chat_stream() code paths."
+}

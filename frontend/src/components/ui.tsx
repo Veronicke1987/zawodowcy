@@ -207,3 +207,18 @@ export function ErrorBox({ message, onRetry, testID }: { message: string; onRetr
     </View>
   );
 }
+
+
+// Shown anywhere the app displays AI-generated advice (career paths, study plans,
+// resources) so it's clear these are suggestions, not guarantees.
+export function AiNote({ style, testID }: { style?: StyleProp<ViewStyle>; testID?: string }) {
+  const { colors } = useTheme();
+  return (
+    <View testID={testID ?? "ai-note"} style={[{ flexDirection: "row", gap: spacing.xs, alignItems: "flex-start", paddingHorizontal: spacing.xs }, style]}>
+      <Ionicons name="sparkles-outline" size={14} color={colors.muted} style={{ marginTop: 1 }} />
+      <Text style={{ flex: 1, fontFamily: fonts.medium, fontSize: 11, lineHeight: 15, color: colors.muted }}>
+        To porady wygenerowane przez AI — pomagają zaplanować naukę, ale nie gwarantują otrzymania posady.
+      </Text>
+    </View>
+  );
+}

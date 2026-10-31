@@ -1,5 +1,4 @@
 from fastapi import FastAPI, APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -7,16 +6,21 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, BeforeValidator, ConfigDict
 from typing import Annotated, Any, Optional, List
 from datetime import datetime, timezone, timedelta, date
-from urllib.parse import quote, quote_plus
+from urllib.parse import quote, quote_plus, urlparse
 from pathlib import Path
 from bson import ObjectId
+from html import escape
+from html.parser import HTMLParser
 import asyncio
 import bcrypt
+import httpx
+import ipaddress
 import jwt
 import json
 import logging
 import os
 import re
+import secrets as pysecrets
 import uuid
 from pymongo.errors import DuplicateKeyError
 
@@ -31,10 +35,18 @@ db = client[os.environ['DB_NAME']]
 
 JWT_SECRET = os.environ['JWT_SECRET']
 JWT_ALG = "HS256"
-LLM_KEY = os.environ['ANTHROPIC_API_KEY']
+LLM_KEY = os.environ['OPENAI_API_KEY']
 ADMIN_EMAILS = {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
-ANALYSIS_MODEL = ("anthropic", "claude-sonnet-5-5")
-FAST_MODEL = ("anthropic", "claude-haiku-5-5")
+ANALYSIS_MODEL = ("openai", "gpt-4.1-mini")
+FAST_MODEL = ("openai", "gpt-4.1-mini")
+
+# Emergent managed email proxy (password-reset codes). This is a CONSTANT, never read
+# from the environment, so it survives deployment. The key itself is provisioned by
+# Emergent; if it isn't set yet, email sends fail gracefully (503) instead of crashing boot.
+EMAIL_BASE_URL = "https://integrations.emergentagent.com"
+EMAIL_KEY = os.environ.get("EMERGENT_EMAIL_KEY")
+EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "Zawodowcy")
+EMAIL_REPLY_TO = os.environ.get("EMAIL_REPLY_TO")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("reset")
@@ -84,6 +96,7 @@ class UserDoc(BaseDocument):
     role: str = "user"
     created_at: str
     premium: Optional[dict] = None
+    streak: Optional[dict] = None
 
 
 class Credentials(BaseModel):
@@ -92,12 +105,27 @@ class Credentials(BaseModel):
     name: str = ""
 
 
+class ForgotPasswordIn(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+
+
+class ResetPasswordIn(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    code: str = Field(min_length=6, max_length=6)
+    new_password: str = Field(min_length=6, max_length=200)
+
+
 class ProfileIn(BaseModel):
     answers: dict
 
 
 class RoadmapIn(BaseModel):
     career_id: str
+
+
+class CustomPathIn(BaseModel):
+    title: str = Field(min_length=2, max_length=120)
+    qualifications: str = Field(default="", max_length=1000)
 
 
 class TaskToggle(BaseModel):
@@ -148,10 +176,47 @@ async def current_user(cred: HTTPAuthorizationCredentials | None = Depends(beare
     return UserDoc.from_mongo(doc)
 
 
+async def touch_streak(user: UserDoc) -> dict:
+    """Updates the daily login streak. Consecutive days +1; missing exactly one day
+    offers a same-day restore (via ad); missing more resets to a fresh streak of 1."""
+    s = user.streak or {}
+    today = date.today()
+    if s.get("last_seen") == today.isoformat():
+        return s
+    count = s.get("count", 0)
+    best = s.get("best", 0)
+    pending_restore = False
+    lost_count = s.get("lost_count", 0)
+    last_counted_raw = s.get("last_counted")
+    last_counted = date.fromisoformat(last_counted_raw) if last_counted_raw else None
+    if last_counted is None:
+        count = 1
+        last_counted = today
+    else:
+        gap = (today - last_counted).days
+        if gap == 1:
+            count += 1
+            last_counted = today
+        elif gap == 2:
+            pending_restore = True
+            lost_count = count
+            # keep count/last_counted untouched — restorable only today
+        elif gap >= 3:
+            count = 1
+            last_counted = today
+    best = max(best, count)
+    new_streak = {"count": count, "best": best, "last_counted": last_counted.isoformat(),
+                  "last_seen": today.isoformat(), "pending_restore": pending_restore, "lost_count": lost_count}
+    await db.users.update_one({"_id": ObjectId(user.id)}, {"$set": {"streak": new_streak}})
+    return new_streak
+
+
 async def public_user(u: UserDoc) -> dict:
     profile = await db.profiles.find_one({"user_id": u.id}, {"_id": 0, "user_id": 1})
+    streak = await touch_streak(u)
     return {"id": u.id, "email": u.email, "name": u.name, "role": u.role, "has_profile": bool(profile),
-            "is_premium": bool(u.premium and u.premium.get("active"))}
+            "is_premium": bool(u.premium and u.premium.get("active")), "streak": streak,
+            "roadmap_generations_used": await roadmap_gen_used(u.id), "roadmap_generations_limit": PREMIUM_MONTHLY_GENERATIONS}
 
 
 # ---------------------------------------------------------------- LLM helpers
@@ -173,12 +238,35 @@ SYSTEM_PL = (
     "Jesteś doświadczonym polskim doradcą zawodowym i analitykiem rynku pracy. "
     "Znasz aktualne oferty pracy publikowane w Polsce na Pracuj.pl, OLX Praca, LinkedIn, Indeed i w urzędach pracy, "
     "w tym typowe wymagania pracodawców. Odpowiadasz WYŁĄCZNIE poprawnym JSON-em, bez komentarzy i bez markdown. "
-    "Wszystkie teksty po polsku."
+    "Wszystkie teksty po polsku. BĄDŹ MAKSYMALNIE ZWIĘZŁY: krótkie, konkretne frazy, zero lania wody, zero powtórzeń "
+    "i zbędnych wyjaśnień — trzymaj się ściśle podanych limitów długości/liczby słów dla każdego pola."
 )
 
 
 def profile_text(answers: dict) -> str:
     return json.dumps(answers, ensure_ascii=False, indent=1)
+
+
+async def validate_profession(title: str) -> tuple[bool, str]:
+    """Blocks custom-path titles that are illegal/criminal activities, or that simply
+    aren't a real job/profession at all (so the roadmap generator never has to hallucinate
+    a path for nonsense input). Fails OPEN (allows) if the classifier call itself errors,
+    so a transient API hiccup never blocks a legitimate user."""
+    prompt = f"""Oceń wpisany przez użytkownika tekst: "{title}"
+Czy to prawdziwy, legalny zawód lub stanowisko pracy, które realnie istnieje na rynku pracy w Polsce?
+Odpowiedz "nie" (valid=false), jeśli to:
+- czynność przestępcza lub nielegalna w Polsce (np. złodziej, zabójca/płatny zabójca, gwałciciel, handlarz narkotykami,
+  "pirat drogowy"/nielegalny przewoźnik, oszust, haker przestępczy, stręczyciel, prostytutka/prostytucja, przemytnik),
+- cokolwiek, co NIE jest zawodem/stanowiskiem pracy (np. przedmiot, zwierzę, jedzenie, miejsce, uczucie, czynność
+  abstrakcyjna typu "być", zaimek typu "ja", losowy tekst, wulgaryzm, puste/bez sensu).
+W razie wątpliwości, czy to realny i legalny zawód, odpowiedz "tak" (valid=true) — blokuj tylko oczywiste przypadki.
+Zwróć TYLKO JSON: {{"valid": true/false, "reason": "krótkie uzasadnienie po polsku (max 1 zdanie), pokazywane użytkownikowi tylko gdy valid=false"}}"""
+    try:
+        data = await ask_llm(FAST_MODEL, SYSTEM_PL, prompt)
+        return bool(data.get("valid", True)), str(data.get("reason") or "")
+    except Exception:
+        logger.exception("profession validation failed, failing open")
+        return True, ""
 
 
 def job_links(title: str) -> list:
@@ -218,6 +306,137 @@ def resource_url(r: dict, city: str) -> str:
     return PLATFORM_SEARCH["google"].format(q=quote_plus(q))
 
 
+# ---------------------------------------------------------------- email (password reset)
+_SHORTENERS = ("bit.ly", "tinyurl.com", "t.co", "is.gd", "cutt.ly", "goo.gl", "rebrand.ly")
+_CRED_ASK = ("reply with your password", "reply with the code", "send your password", "cvv",
+             "send us your password", "enter your password below", "confirm your card number",
+             "your full card number", "seed phrase", "recovery phrase", "verify your card",
+             "social security number", "confirm your bank details")
+_HOSTISH = re.compile(r"\b(?:https?://)?((?:[a-z0-9-]+\.)+[a-z]{2,})", re.I)
+
+
+def _host_ok(host: str) -> bool:
+    if not host or "xn--" in host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return False
+    except ValueError:
+        pass
+    return not any(host == s or host.endswith("." + s) for s in _SHORTENERS)
+
+
+def _same_site(shown: str, real: str) -> bool:
+    return shown == real or real.endswith("." + shown) or shown.endswith("." + real)
+
+
+class _EmailScan(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.tags, self.urls, self.anchors = set(), [], []
+        self._href, self._text = None, []
+
+    def handle_starttag(self, tag, attrs):
+        self.tags.add(tag.lower())
+        self.urls += [v for k, v in attrs if k.lower() in ("href", "src") and v]
+        if tag.lower() == "a":
+            self._href = dict((k.lower(), v) for k, v in attrs).get("href")
+            self._text = []
+
+    def handle_data(self, data):
+        if self._href is not None:
+            self._text.append(data)
+
+    def handle_endtag(self, tag):
+        if tag.lower() == "a" and self._href is not None:
+            self.anchors.append((self._href, "".join(self._text)))
+            self._href, self._text = None, []
+
+
+def _assert_safe_email(subject: str, html: str) -> None:
+    scan = _EmailScan()
+    scan.feed(html)
+    if scan.tags & {"form", "input", "textarea", "select"}:
+        raise ValueError("No forms or input fields in email (G2)")
+    body = f"{subject}\n{html}".lower()
+    for p in _CRED_ASK:
+        if p in body:
+            raise ValueError(f"Email asks the recipient for credentials: {p!r} (G2)")
+    for url in scan.urls:
+        low = url.strip().lower()
+        if low.startswith(("mailto:", "tel:", "cid:", "#")):
+            continue
+        if not low.startswith("https://"):
+            raise ValueError(f"Email links/assets must be absolute https: {url!r} (G3)")
+        host = urlparse(low).hostname or ""
+        if not _host_ok(host) or urlparse(low).username is not None:
+            raise ValueError(f"Shortened, numeric-host or credential-bearing URL: {url!r} (G3)")
+    for href, text in scan.anchors:
+        real = urlparse(href.strip().lower()).hostname or ""
+        if not real:
+            continue
+        for m in _HOSTISH.finditer(text):
+            if not _same_site(m.group(1).lower(), real):
+                raise ValueError(f"Anchor text {m.group(1)!r} != real link host {real!r} (G3)")
+
+
+async def send_email(*, to: str, subject: str, html: str, reply_to: str | None = None) -> str | None:
+    """Internal helper — html always comes from our own server-side templates below,
+    never from request input (G4)."""
+    if not EMAIL_KEY:
+        logger.warning("EMERGENT_EMAIL_KEY not configured yet — email not sent")
+        raise HTTPException(status_code=503, detail="Wysyłka e-maili jest chwilowo niedostępna. Spróbuj ponownie za chwilę.")
+    _assert_safe_email(subject, html)
+    payload = {"to": [to], "subject": subject, "html": html, "from_name": EMAIL_FROM_NAME}
+    if reply_to or EMAIL_REPLY_TO:
+        payload["contact_email"] = reply_to or EMAIL_REPLY_TO
+    try:
+        async with httpx.AsyncClient(timeout=30) as client_http:
+            resp = await client_http.post(f"{EMAIL_BASE_URL}/api/v1/email/send", headers={"X-Email-Key": EMAIL_KEY}, json=payload)
+        resp.raise_for_status()
+        return resp.json().get("id")
+    except httpx.HTTPStatusError as e:
+        try:
+            code = e.response.json().get("code", "")
+        except ValueError:
+            code = ""
+        if code in ("insufficient_credits", "integration_disabled", "daily_limit_reached"):
+            logger.warning(f"Email paused: {code} ({e.response.status_code}): {e.response.json().get('message', '')}")
+            raise HTTPException(status_code=503, detail="Wysyłka e-maili jest chwilowo niedostępna.")
+        logger.error(f"Email send failed: {e.response.status_code} {e.response.text}")
+        raise HTTPException(status_code=502, detail="Nie udało się wysłać e-maila.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Email send error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Nie udało się wysłać e-maila.")
+
+
+def reset_code_email_html(code: str, name: str) -> str:
+    greeting = f"Cześć {escape(name)}," if name else "Cześć,"
+    return (
+        '<table role="presentation" width="100%" style="background:#F7F7F8;padding:32px 0">'
+        '<tr><td align="center">'
+        '<table role="presentation" width="100%" style="max-width:420px;background:#FFFFFF;border-radius:16px;overflow:hidden;'
+        'font-family:Arial,sans-serif">'
+        '<tr><td style="background:#FA5252;padding:24px;text-align:center">'
+        '<span style="color:#FFFFFF;font-size:22px;font-weight:800">Zawodowcy</span></td></tr>'
+        f'<tr><td style="padding:28px 28px 8px 28px;color:#1A1A1A;font-size:15px;line-height:22px">{greeting}</td></tr>'
+        '<tr><td style="padding:0 28px 8px 28px;color:#1A1A1A;font-size:15px;line-height:22px">'
+        'otrzymaliśmy prośbę o zresetowanie hasła do Twojego konta w aplikacji Zawodowcy. Wpisz poniższy kod w aplikacji, '
+        'aby ustawić nowe hasło:</td></tr>'
+        '<tr><td style="padding:16px 28px" align="center">'
+        f'<span style="display:inline-block;background:#FFE3E3;color:#C92A2A;font-size:32px;font-weight:800;letter-spacing:8px;'
+        f'padding:14px 20px;border-radius:12px">{escape(code)}</span></td></tr>'
+        '<tr><td style="padding:0 28px 24px 28px;color:#666666;font-size:13px;line-height:19px">'
+        'Kod jest ważny przez 15 minut. Jeśli to nie Ty prosiłeś/aś o reset hasła, po prostu zignoruj tę wiadomość — '
+        'Twoje hasło pozostanie bez zmian.</td></tr>'
+        '<tr><td style="padding:16px 28px;border-top:1px solid #EFEFEF;color:#999999;font-size:11px">'
+        'Wiadomość wysłana przez Zawodowcy. Nigdy nie prosimy o podanie hasła przez e-mail.</td></tr>'
+        '</table></td></tr></table>'
+    )
+
+
 # ---------------------------------------------------------------- auth routes
 @api.post("/auth/register", status_code=201)
 async def register(data: Credentials):
@@ -252,9 +471,83 @@ async def login(data: Credentials):
     return {"access_token": make_token(user.id), "user": await public_user(user)}
 
 
+RESET_CODE_TTL_MIN = 15
+RESET_COOLDOWN_SEC = 60
+RESET_MAX_ATTEMPTS = 5
+
+
+@api.post("/auth/forgot-password")
+async def forgot_password(data: ForgotPasswordIn):
+    """Always answers with the same generic message, whether or not the e-mail exists,
+    so this endpoint can never be used to discover which e-mails have an account."""
+    email = data.email.strip().lower()
+    generic = {"ok": True, "message": "Jeśli to konto istnieje, wysłaliśmy na podany adres e-mail kod do zresetowania hasła."}
+    if "@" not in email:
+        return generic
+    doc = await db.users.find_one({"email": email})
+    if not doc:
+        return generic
+    last_req = doc.get("reset_requested_at")
+    if last_req:
+        try:
+            if (datetime.now(timezone.utc) - datetime.fromisoformat(last_req)).total_seconds() < RESET_COOLDOWN_SEC:
+                return generic  # within cooldown — don't spam another send
+        except ValueError:
+            pass
+    code = f"{pysecrets.randbelow(1_000_000):06d}"
+    expires = (datetime.now(timezone.utc) + timedelta(minutes=RESET_CODE_TTL_MIN)).isoformat()
+    logger.info(f"password reset code for {email}: {code} (delivered via email; logged here only as a fallback while email delivery is being provisioned)")
+    await db.users.update_one(
+        {"_id": doc["_id"]},
+        {"$set": {"reset_code_hash": hash_pw(code), "reset_code_expires": expires, "reset_attempts": 0, "reset_requested_at": now_iso()}},
+    )
+    try:
+        await send_email(to=email, subject="Kod do zresetowania hasła — Zawodowcy", html=reset_code_email_html(code, doc.get("name", "")))
+    except HTTPException:
+        logger.exception("forgot-password: email send failed")
+    return generic
+
+
+@api.post("/auth/reset-password")
+async def reset_password(data: ResetPasswordIn):
+    email = data.email.strip().lower()
+    invalid = HTTPException(400, "Nieprawidłowy lub wygasły kod. Poproś o nowy.")
+    doc = await db.users.find_one({"email": email})
+    if not doc or not doc.get("reset_code_hash") or not doc.get("reset_code_expires"):
+        raise invalid
+    if doc.get("reset_attempts", 0) >= RESET_MAX_ATTEMPTS:
+        raise HTTPException(400, "Zbyt wiele nieudanych prób. Poproś o nowy kod.")
+    if datetime.now(timezone.utc) > datetime.fromisoformat(doc["reset_code_expires"]):
+        raise invalid
+    if not verify_pw(data.code.strip(), doc["reset_code_hash"]):
+        await db.users.update_one({"_id": doc["_id"]}, {"$inc": {"reset_attempts": 1}})
+        raise invalid
+    await db.users.update_one(
+        {"_id": doc["_id"]},
+        {"$set": {"password_hash": hash_pw(data.new_password)},
+         "$unset": {"reset_code_hash": "", "reset_code_expires": "", "reset_attempts": "", "reset_requested_at": ""}},
+    )
+    user = UserDoc.from_mongo(await db.users.find_one({"_id": doc["_id"]}))
+    return {"access_token": make_token(user.id), "user": await public_user(user)}
+
+
 @api.get("/auth/me")
 async def me(user: UserDoc = Depends(current_user)):
     return await public_user(user)
+
+
+@api.post("/streak/restore")
+async def restore_streak(user: UserDoc = Depends(current_user)):
+    s = user.streak or {}
+    if not s.get("pending_restore"):
+        raise HTTPException(400, "Nie masz utraconej serii do przywrócenia.")
+    today = date.today()
+    count = s.get("lost_count", 0) + 1
+    best = max(s.get("best", 0), count)
+    new_streak = {"count": count, "best": best, "last_counted": today.isoformat(), "last_seen": today.isoformat(),
+                  "pending_restore": False, "lost_count": 0}
+    await db.users.update_one({"_id": ObjectId(user.id)}, {"$set": {"streak": new_streak}})
+    return {"streak": new_streak}
 
 
 # ---------------------------------------------------------------- profile
@@ -309,8 +602,8 @@ Weź pod uwagę to, czego użytkownik nie lubi, jego charakter i odporność zaw
 {MODE_RULES.get(answers.get("reset_mode") or "search", MODE_RULES["search"])}
 
 Zwróć JSON:
-{{"summary": "2-3 zdania podsumowania profilu i mocnych stron",
- "now": [{{"title": "nazwa stanowiska jak w ogłoszeniach", "industry": "branża", "summary": "1-2 zdania", "why": "dlaczego pasuje (1-2 zdania)",
+{{"summary": "1 krótkie zdanie (max 15 słów) podsumowania profilu i mocnych stron",
+ "now": [{{"title": "nazwa stanowiska jak w ogłoszeniach", "industry": "branża", "summary": "max 10 słów", "why": "dlaczego pasuje, max 10 słów",
           "match": 0-100, "salary": "np. 6 000 – 8 500 zł brutto", "demand": "wysoki|średni|niski", "ai_risk": "niskie|średnie|wysokie",
           "missing_skills": ["..."]}}],
  "future": [ ...ten sam format... ]}}"""
@@ -380,17 +673,16 @@ async def career_detail(career_id: str, user: UserDoc = Depends(current_user)):
     cached = await db.career_details.find_one({"user_id": user.id, "career_id": career_id}, {"_id": 0})
     if cached:
         return {"career": career, "detail": cached["detail"], "job_links": job_links(career["title"])}
-    prof = await db.profiles.find_one({"user_id": user.id}) or {}
-    prompt = f"""Zawód: {career['title']} (branża: {career.get('industry', '')}).
-Profil użytkownika: {profile_text(prof.get('answers', {}))}
+    prompt = f"""To jest odrębne, samodzielne zapytanie — dotyczy WYŁĄCZNIE poniższego jednego zawodu, nie odwołuj się do innych zawodów ani wcześniejszych rozmów.
+Zawód: {career['title']} (branża: {career.get('industry', '')}).
 
 Opisz ten zawód na podstawie typowych ofert pracy w Polsce (Pracuj.pl, OLX, LinkedIn). Zwróć JSON:
-{{"description": "3-4 zdania opisu zawodu",
- "daily_tasks": ["4-6 typowych codziennych zadań"],
- "pros": ["4-5 plusów"], "cons": ["3-5 minusów"],
- "requirements": ["5-8 typowych wymagań z ogłoszeń, np. wykształcenie, znajomość programów, prawo jazdy kat. B, języki"],
- "how_to_start": ["4-6 konkretnych kroków, co ta osoba powinna zrobić żeby zacząć pracę w tym zawodzie"],
- "career_levels": ["kolejne stanowiska od wejściowego do najwyższego, 4-5 pozycji"]}}"""
+{{"description": "2 krótkie zdania opisu zawodu (max 30 słów)",
+ "daily_tasks": ["4-6 typowych codziennych zadań, max 6 słów każde"],
+ "pros": ["4-5 plusów, max 6 słów każdy"], "cons": ["3-5 minusów, max 6 słów każdy"],
+ "requirements": ["5-8 typowych wymagań z ogłoszeń, krótkie frazy, np. wykształcenie, znajomość programów, prawo jazdy kat. B, języki"],
+ "how_to_start": ["4-6 konkretnych kroków, max 10 słów każdy"],
+ "career_levels": ["4-5 kolejnych, REALNYCH, oficjalnie istniejących w Polsce stanowisk/stopni awansu w TYM KONKRETNYM zawodzie, od wejściowego do najwyższego — np. dla nauczyciela: nauczyciel stażysta, kontraktowy, mianowany, dyplomowany, wicedyrektor, dyrektor szkoły; dla programisty: junior, mid, senior, lead, CTO. NIE wymyślaj nazw stanowisk, których nie ma w tym zawodzie — jeśli nie masz pewności, użyj najbardziej powszechnie znanej, rzeczywistej struktury awansu."]}}"""
     try:
         detail = await ask_llm(FAST_MODEL, SYSTEM_PL, prompt)
     except Exception:
@@ -406,10 +698,10 @@ Opisz ten zawód na podstawie typowych ofert pracy w Polsce (Pracuj.pl, OLX, Lin
 
 # ---------------------------------------------------------------- premium (demo mode, no real payments yet)
 PREMIUM_PATH_LIMIT = 3
-FREE_CHAT_PER_DAY = 5
-PREMIUM_CHAT_PER_DAY = 10
+PREMIUM_MONTHLY_GENERATIONS = 25  # new career-path generations per month included with Premium; the weekly/daily
+# study plan for an already-generated path is always free and never counts against this.
 PREMIUM_PLANS = {
-    "monthly": {"label": "Miesięczny", "price": "19,99 zł", "period": "miesiąc"},
+    "monthly": {"label": "Miesięczny", "price": "19 zł", "period": "miesiąc"},
     "yearly": {"label": "Roczny", "price": "149,99 zł", "period": "rok"},
 }
 
@@ -422,11 +714,27 @@ def is_premium(u: UserDoc) -> bool:
     return bool(u.premium and u.premium.get("active"))
 
 
+def _gen_month_key() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m")
+
+
+async def roadmap_gen_used(user_id: str) -> int:
+    doc = await db.gen_usage.find_one({"user_id": user_id, "month": _gen_month_key()})
+    return (doc or {}).get("count", 0)
+
+
+async def bump_roadmap_gen(user_id: str):
+    """Counts one brand-new career-path (roadmap) generation toward the Premium monthly
+    quota. Only called when a NEW roadmap is actually generated — reactivating an existing
+    path (same title) and generating/redoing that path's study plan never call this."""
+    await db.gen_usage.update_one({"user_id": user_id, "month": _gen_month_key()}, {"$inc": {"count": 1}}, upsert=True)
+
+
 @api.get("/premium")
 async def premium_info(user: UserDoc = Depends(current_user)):
     return {"is_premium": is_premium(user), "premium": user.premium, "plans": PREMIUM_PLANS,
-            "path_limit": PREMIUM_PATH_LIMIT, "free_chat_per_day": FREE_CHAT_PER_DAY,
-            "premium_chat_per_day": PREMIUM_CHAT_PER_DAY, "demo": True}
+            "path_limit": PREMIUM_PATH_LIMIT, "roadmap_generations_used": await roadmap_gen_used(user.id),
+            "roadmap_generations_limit": PREMIUM_MONTHLY_GENERATIONS, "demo": True}
 
 
 @api.post("/premium/subscribe")
@@ -463,14 +771,19 @@ async def run_roadmap(user_id: str, career: dict, answers: dict, job_id: str):
     prompt = f"""Użytkownik wybrał ścieżkę kariery: {career['title']} (branża: {career.get('industry', '')}).
 Profil użytkownika: {profile_text(answers)}
 
-Zbuduj ścieżkę kariery w formie drogi: 4-5 DUŻYCH punktów (stanowisk) od wejściowego do najwyższego (np. junior → specjalista → senior → kierownik/ekspert → dyrektor).
+Zbuduj ścieżkę kariery w formie drogi: 4-5 DUŻYCH punktów (stanowisk) od wejściowego do najwyższego, UŻYWAJĄC REALNYCH, oficjalnie
+istniejących w Polsce nazw stanowisk/stopni awansu zawodowego DLA TEGO KONKRETNEGO zawodu — nie każdy zawód ma strukturę
+korporacyjną (junior/specjalista/senior/kierownik/dyrektor)! Np. dla nauczyciela realna ścieżka to: nauczyciel stażysta →
+kontraktowy → mianowany → dyplomowany → wicedyrektor → dyrektor szkoły; dla programisty: junior → mid → senior → lead → CTO;
+dla lekarza: lekarz stażysta → rezydent → specjalista → ordynator. NIE wymyślaj stanowisk, których nie ma w tym zawodzie —
+jeśli nie masz pewności, użyj najbardziej powszechnie znanej, rzeczywistej struktury awansu w tym konkretnym zawodzie w Polsce.
 Do każdego stanowiska podaj 3-5 MAŁYCH punktów (zadań), które użytkownik musi zdobyć/wykonać, aby dostać to stanowisko —
 opartych na wymaganiach z prawdziwych ofert pracy (np. studia z danej dziedziny, kurs Excela, znajomość programu Symfonia/SAP/Comarch,
 prawo jazdy kat. B, certyfikat, język angielski B2, 2 lata doświadczenia). Uwzględnij to, co użytkownik już ma — takie zadania oznacz "already_has": true.
 Zwróć JSON:
-{{"milestones": [{{"title": "stanowisko", "description": "1-2 zdania", "salary": "widełki brutto", "years": "np. 0-2 lata",
-   "requirements": ["wymagania z ofert"],
-   "tasks": [{{"title": "krótka nazwa zadania", "description": "1 zdanie co dokładnie zrobić",
+{{"milestones": [{{"title": "stanowisko", "description": "max 1 krótkie zdanie (max 15 słów)", "salary": "widełki brutto", "years": "np. 0-2 lata",
+   "requirements": ["wymagania z ofert, krótkie frazy"],
+   "tasks": [{{"title": "krótka nazwa zadania", "description": "max 10 słów, co dokładnie zrobić",
               "type": "studies|course|skill|certificate|language|license|experience|other", "already_has": false}}]}}]}}"""
     try:
         data = await ask_llm(ANALYSIS_MODEL, SYSTEM_PL, prompt)
@@ -507,7 +820,47 @@ async def choose_path(data: RoadmapIn, user: UserDoc = Depends(current_user)):
     await db.roadmaps.update_many({"user_id": user.id}, {"$set": {"active": False}})
     await db.roadmaps.insert_one({"user_id": user.id, "path_id": path_id, "active": True, "career": career, "status": "pending",
                                   "job_id": job_id, "milestones": [], "started_at": now_iso(), "created_at": now_iso()})
+    await bump_roadmap_gen(user.id)
     spawn(run_roadmap(user.id, career, prof.get("answers", {}), job_id))
+    return {"status": "pending", "path_id": path_id}
+
+
+@api.post("/roadmap/custom")
+async def choose_custom_path(data: CustomPathIn, user: UserDoc = Depends(current_user)):
+    """Lets a user skip the profiling quiz entirely: they type the exact position they
+    want and (optionally) their current qualifications for it, and AI builds the roadmap
+    straight away, the same way it does for a quiz-suggested career."""
+    title = data.title.strip()
+    if not title:
+        raise HTTPException(400, "Podaj nazwę stanowiska.")
+    valid, reason = await validate_profession(title)
+    if not valid:
+        raise HTTPException(400, reason or f"„{title}” nie jest prawidłowym, legalnym zawodem. Wpisz prawdziwe stanowisko pracy.")
+    await db.roadmaps.delete_many({"user_id": user.id, "status": "error"})
+    existing = await db.roadmaps.find({"user_id": user.id}, {"_id": 0, "path_id": 1, "career": 1, "status": 1}).to_list(100)
+    same = next((d for d in existing if d["career"]["title"].strip().lower() == title.lower() and d.get("status") != "error"), None)
+    if same:
+        await db.roadmaps.update_many({"user_id": user.id}, {"$set": {"active": False}})
+        await db.roadmaps.update_one({"user_id": user.id, "path_id": same["path_id"]}, {"$set": {"active": True}})
+        return {"status": same["status"], "path_id": same["path_id"], "existing": True}
+    if len(existing) >= PREMIUM_PATH_LIMIT:
+        raise HTTPException(403, f"Masz już {PREMIUM_PATH_LIMIT} ścieżki. Usuń jedną w zakładce Droga, aby dodać nową.")
+    career = {"id": uuid.uuid4().hex[:12], "title": title, "industry": "", "summary": "Twój własny cel zawodowy.",
+              "why": "", "match": 100, "category": "now"}
+    prof = await db.profiles.find_one({"user_id": user.id}) or {}
+    qualifications = data.qualifications.strip()
+    answers = {
+        **prof.get("answers", {}),
+        "recznie_wskazane_stanowisko_docelowe": title,
+        "kwalifikacje_do_tego_stanowiska": qualifications or "Użytkownik nie ma jeszcze żadnych kwalifikacji ani doświadczenia w tym kierunku — zaczyna od zera.",
+    }
+    job_id = uuid.uuid4().hex
+    path_id = uuid.uuid4().hex[:12]
+    await db.roadmaps.update_many({"user_id": user.id}, {"$set": {"active": False}})
+    await db.roadmaps.insert_one({"user_id": user.id, "path_id": path_id, "active": True, "career": career, "status": "pending",
+                                  "job_id": job_id, "milestones": [], "started_at": now_iso(), "created_at": now_iso()})
+    await bump_roadmap_gen(user.id)
+    spawn(run_roadmap(user.id, career, answers, job_id))
     return {"status": "pending", "path_id": path_id}
 
 
@@ -588,7 +941,9 @@ async def task_resources(task_id: str, user: UserDoc = Depends(current_user)):
         return task["resources"]
     prof = await db.profiles.find_one({"user_id": user.id}) or {}
     city = (prof.get("answers") or {}).get("city", "") or ""
-    prompt = f"""Ścieżka kariery: {doc['career']['title']}. Stanowisko docelowe: {milestone['title']}.
+    prompt = f"""To jest odrębne, samodzielne zapytanie — dotyczy WYŁĄCZNIE poniższego jednego punktu drogi. Nie odwołuj się do innych
+zadań z tej ścieżki ani do żadnych wcześniejszych rozmów czy wcześniej wygenerowanych treści — nie istnieją.
+Ścieżka kariery: {doc['career']['title']}. Stanowisko docelowe: {milestone['title']}.
 Zadanie do zdobycia: {task['title']} — {task['description']} (typ: {task['type']}).
 Miejscowość użytkownika: {city or 'nie podano'}.
 
@@ -596,13 +951,13 @@ Podpowiedz, jak zdobyć ten punkt. Jeśli to studia — opisz kierunki, tryby (d
 Jeśli to umiejętność/program (np. Excel) — kanały YouTube, platformy szkoleniowe, jak korzystać darmowo (np. Excel w przeglądarce w Microsoft 365 online),
 kursy finansowane przez urząd pracy (bon szkoleniowy, KFS), webinary.
 Zwróć JSON:
-{{"overview": "2-3 zdania czym jest ten punkt i dlaczego jest ważny",
- "steps": ["3-5 konkretnych kroków jak to zdobyć"],
- "free_tips": ["2-4 sposoby zrobienia tego za darmo lub taniej"],
+{{"overview": "2-3 zdania (max 35 słów) czym jest ten punkt, dlaczego jest ważny i co konkretnie zyskujesz go zdobywając",
+ "steps": ["4-6 konkretnych kroków jak to zdobyć, max 14 słów każdy"],
+ "free_tips": ["3-5 sposobów zrobienia tego za darmo lub taniej, max 14 słów każdy"],
  "specializations": ["tylko dla studiów/kursów: możliwe specjalizacje, inaczej pusta lista"],
  "time_estimate": "ile to zwykle trwa",
  "resources": [{{"type": "youtube|course|studies|urzad_pracy|webinar|certificate|article", "platform": "np. YouTube, Coursera, Udemy, LinkedIn Learning, Google",
-                "title": "nazwa zasobu", "description": "1 zdanie", "query": "fraza wyszukiwania po polsku"}}]}}
+                "title": "nazwa zasobu", "description": "max 12 słów", "query": "fraza wyszukiwania po polsku"}}]}}
 Podaj 5-8 zasobów, w tym przynajmniej jeden YouTube i jeden urzad_pracy."""
     try:
         data = await ask_llm(FAST_MODEL, SYSTEM_PL, prompt)
@@ -635,10 +990,10 @@ Do zdobycia (w kolejności drogi):
 Ułóż realistyczny plan nauki na 8 tygodni, skupiony na najbliższych punktach drogi. Każdy tydzień: cel i 3-5 konkretnych zadań z liczbą godzin.
 Uwzględnij darmowe materiały, kursy z urzędu pracy, ćwiczenia praktyczne i budowanie portfolio/CV.
 Zwróć JSON:
-{{"hours_per_week": liczba, "summary": "1-2 zdania",
+{{"hours_per_week": liczba, "summary": "1 krótkie zdanie",
  "weeks": [{{"week": 1, "focus": "temat tygodnia", "goal": "co umiesz po tygodniu",
-            "items": [{{"title": "zadanie", "description": "1 zdanie jak to zrobić", "hours": liczba}}]}}],
- "tips": ["3 rady motywacyjne/organizacyjne"]}}"""
+            "items": [{{"title": "zadanie", "description": "max 10 słów jak to zrobić", "hours": liczba}}]}}],
+ "tips": ["3 rady motywacyjne/organizacyjne, max 10 słów każda"]}}"""
     try:
         plan = await ask_llm(ANALYSIS_MODEL, SYSTEM_PL, prompt)
         await db.roadmaps.update_one({"user_id": user_id, "path_id": path_id, "study_plan.job_id": job_id},
@@ -680,41 +1035,44 @@ WEEKDAY_NAMES_PL = ["poniedziałek", "wtorek", "środa", "czwartek", "piątek", 
 FREE_UNLOCKED_STUDY_DAYS = 2  # free users get this many study days per week for free; the rest needs an ad
 
 
-def monday_of(d: date) -> date:
-    return d - timedelta(days=d.weekday())
-
-
-def week_unlock_day(d: date) -> date:
-    """Saturday of the week containing d — when the NEXT week becomes generatable."""
-    return monday_of(d) + timedelta(days=5)
+def week_unlock_day(week_start: date) -> date:
+    """2 days before this (rolling, not necessarily Monday-aligned) week ends — when the NEXT week becomes generatable."""
+    return week_start + timedelta(days=5)
 
 
 async def run_daily_plan(user_id: str, path_id: str, job_id: str, week_index: int, week_start: date, premium: bool, is_next: bool = False):
     doc = await db.roadmaps.find_one({"user_id": user_id, "path_id": path_id})
     settings = (doc.get("daily_plan") or {}).get("settings", {})
     free_days = {d for d in settings.get("free_days", []) if 0 <= d <= 6}
-    active_days = [i for i in range(7) if i not in free_days]
     done_ids = {t["id"] for m in doc.get("milestones", []) for t in m.get("tasks", []) if t.get("done")}
     pending = [{"id": t["id"], "title": t["title"], "type": t.get("type", "other")}
                for m in doc.get("milestones", []) for t in m.get("tasks", []) if not t.get("done")]
     time_desc = (f"{settings.get('time_value')} minut dziennie w dni nauki" if settings.get("time_mode") == "daily"
                  else f"{settings.get('time_value')} godzin tygodniowo, rozłożone elastycznie na dni nauki")
+    # week_start isn't always a Monday — the very first week starts on the day the user
+    # actually sets up the plan (so e.g. a Saturday start never contains already-past days).
+    window = [week_start + timedelta(days=i) for i in range(7)]
+    day_lines = "\n".join(
+        f"- {WEEKDAY_NAMES_PL[d.weekday()]} ({d.isoformat()}): {'WOLNY, nic nie planuj' if d.weekday() in free_days else 'dzień nauki'}"
+        for d in window
+    )
     prompt = f"""Ścieżka kariery: {doc['career']['title']}.
 Zadania do zdobycia (z ID), w kolejności drogi:
 {json.dumps(pending[:25], ensure_ascii=False)}
 
-Dostępne dni nauki w tym tygodniu: {', '.join(WEEKDAY_NAMES_PL[i] for i in active_days) or 'brak (wszystkie dni wolne)'}.
+Dni tego tygodnia w kolejności chronologicznej (ten tydzień NIE zawsze zaczyna się w poniedziałek):
+{day_lines}
 Czas na naukę: {time_desc}.
 
-Dla KAŻDEGO dostępnego dnia nauki (pomijając dni wolne) zaplanuj 1-3 konkretne, wykonalne TEGO DNIA czynności
+Dla KAŻDEGO dnia nauki (pomijając dni wolne) zaplanuj 1-3 konkretne, wykonalne TEGO DNIA czynności
 (np. "Obejrzyj wprowadzenie do funkcji VLOOKUP w Excelu na YouTube"), każdą powiązaną z ID jednego z zadań z listy
 powyżej (pole task_id), chyba że to czynność ogólna (np. szukanie ofert, przegląd postępów) — wtedy task_id = null.
 Jeśli zadanie jest bardzo długoterminowe (studia, wieloetapowy kurs, certyfikacja trwająca miesiące), oznacz powiązaną
-czynność jako long_term=true i zaplanuj dla niej tylko JEDNĄ czynność w CAŁYM tygodniu (najlepiej w niedzielę, jeśli
-to dzień nauki, inaczej w ostatnim dostępnym dniu) — np. "Sprawdź swoje postępy w nauce na studiach/kursie w tym tygodniu".
+czynność jako long_term=true i zaplanuj dla niej tylko JEDNĄ czynność w CAŁYM tygodniu, najlepiej w ostatnim
+dniu nauki z listy powyżej — np. "Sprawdź swoje postępy w nauce na studiach/kursie w tym tygodniu".
 Nie planuj nic w dni wolne.
-Zwróć JSON:
-{{"days": [{{"weekday": 0-6, "items": [{{"title": "krótka nazwa", "description": "1 zdanie co dokładnie zrobić",
+Zwróć JSON z polem "weekday" = numer dnia tygodnia zgodnie z datami powyżej (0=poniedziałek, 1=wtorek, 2=środa, 3=czwartek, 4=piątek, 5=sobota, 6=niedziela):
+{{"days": [{{"weekday": 0-6, "items": [{{"title": "krótka nazwa (max 6 słów)", "description": "max 10 słów, co dokładnie zrobić",
             "minutes": liczba, "task_id": "id z listy lub null", "long_term": true/false}}]}}]}}"""
     status_field = "daily_plan.next_status" if is_next else "daily_plan.status"
     job_field = "daily_plan.next_job_id" if is_next else "daily_plan.job_id"
@@ -723,19 +1081,19 @@ Zwróć JSON:
         by_weekday = {d.get("weekday"): d.get("items", []) for d in data.get("days", [])}
         study_pos = 0
         days_out = []
-        for i in range(7):
-            d = week_start + timedelta(days=i)
-            is_free = i in free_days
+        for d in window:
+            wd = d.weekday()
+            is_free = wd in free_days
             items = []
             locked = False
             if not is_free:
                 locked = (not premium) and study_pos >= FREE_UNLOCKED_STUDY_DAYS
-                for it in by_weekday.get(i, []):
+                for it in by_weekday.get(wd, []):
                     items.append({"id": uuid.uuid4().hex[:10], "title": it.get("title", ""), "description": it.get("description", ""),
                                   "minutes": it.get("minutes"), "milestone_task_id": it.get("task_id"),
                                   "long_term": bool(it.get("long_term")), "done": False})
                 study_pos += 1
-            days_out.append({"date": d.isoformat(), "weekday": i, "free": is_free, "locked": locked, "items": items})
+            days_out.append({"date": d.isoformat(), "weekday": wd, "free": is_free, "locked": locked, "items": items})
         week = {"index": week_index, "start_date": week_start.isoformat(), "days": days_out}
         await db.roadmaps.update_one({"user_id": user_id, "path_id": path_id, job_field: job_id},
                                      {"$set": {status_field: "ready"}, "$push": {"daily_plan.weeks": week}})
@@ -757,7 +1115,9 @@ async def set_daily_plan_settings(data: DailyPlanSettingsIn, path_id: Optional[s
         raise HTTPException(400, "Zostaw przynajmniej jeden dzień nauki w tygodniu.")
     settings = {"time_mode": data.time_mode, "time_value": data.time_value, "free_days": free_days}
     job_id = uuid.uuid4().hex
-    week_start = monday_of(date.today())
+    # the first (or redone) week always starts TODAY, never on a calendar Monday — a user
+    # setting this up on a Saturday must never see already-past days (Mon-Fri) in their plan.
+    week_start = date.today()
     await db.roadmaps.update_one({"user_id": user.id, "path_id": doc["path_id"]},
                                  {"$set": {"daily_plan": {"settings": settings, "status": "pending", "job_id": job_id, "weeks": [], "started_at": now_iso()}}})
     spawn(run_daily_plan(user.id, doc["path_id"], job_id, 0, week_start, is_premium(user)))
@@ -866,16 +1226,18 @@ async def daily_item_resources(item_id: str, user: UserDoc = Depends(current_use
         return item["resources"]
     prof = await db.profiles.find_one({"user_id": user.id}) or {}
     city = (prof.get("answers") or {}).get("city", "") or ""
-    prompt = f"""Czynność z planu dnia na ścieżce kariery "{doc['career']['title']}": {item['title']} — {item['description']}.
+    prompt = f"""To jest odrębne, samodzielne zapytanie — dotyczy WYŁĄCZNIE poniższej jednej czynności. Nie odwołuj się do innych
+czynności z planu, innych zadań ani żadnych wcześniejszych rozmów czy wcześniej wygenerowanych treści — nie istnieją.
+Czynność z planu dnia na ścieżce kariery "{doc['career']['title']}": {item['title']} — {item['description']}.
 Miejscowość użytkownika: {city or 'nie podano'}.
 
 Podpowiedz, jak dokładnie wykonać tę czynność dziś. Podaj konkretne, darmowe lub tanie materiały.
 Zwróć JSON:
-{{"overview": "1-2 zdania czym jest ta czynność i dlaczego pomaga", "steps": ["3-5 konkretnych krok\u00f3w"],
- "free_tips": ["1-3 sposoby zrobienia tego za darmo"], "specializations": [], "time_estimate": "ile to zwykle trwa",
+{{"overview": "1-2 zdania (max 25 słów) czym jest ta czynność i dlaczego pomaga", "steps": ["4-6 konkretnych krok\u00f3w, max 14 słów każdy"],
+ "free_tips": ["2-4 sposoby zrobienia tego za darmo, max 12 słów każdy"], "specializations": [], "time_estimate": "ile to zwykle trwa",
  "resources": [{{"type": "youtube|course|studies|urzad_pracy|webinar|certificate|article", "platform": "np. YouTube, Coursera, Google",
-                "title": "nazwa zasobu", "description": "1 zdanie", "query": "fraza wyszukiwania po polsku"}}]}}
-Podaj 3-5 zasob\u00f3w, w tym przynajmniej jeden YouTube."""
+                "title": "nazwa zasobu", "description": "max 12 słów", "query": "fraza wyszukiwania po polsku"}}]}}
+Podaj 4-6 zasob\u00f3w, w tym przynajmniej jeden YouTube."""
     try:
         data = await ask_llm(FAST_MODEL, SYSTEM_PL, prompt)
     except Exception:
@@ -887,106 +1249,6 @@ Podaj 3-5 zasob\u00f3w, w tym przynajmniej jeden YouTube."""
         {"user_id": user.id, "daily_plan.weeks.days.items.id": item_id},
         {"$set": {"daily_plan.weeks.$[].days.$[].items.$[it].resources": data}}, array_filters=[{"it.id": item_id}])
     return data
-
-
-# ---------------------------------------------------------------- advisor chat
-class ChatIn(BaseModel):
-    text: str = Field(min_length=1, max_length=2000)
-
-
-def today_start_iso() -> str:
-    return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-
-
-def today_key() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-
-def chat_limit_for(user: UserDoc) -> int:
-    return PREMIUM_CHAT_PER_DAY if is_premium(user) else FREE_CHAT_PER_DAY
-
-
-async def chat_remaining(user: UserDoc) -> int:
-    limit = chat_limit_for(user)
-    doc = await db.chat_usage.find_one({"user_id": user.id, "day": today_key()})
-    return max(limit - (doc or {}).get("count", 0), 0)
-
-
-async def reserve_chat(user: UserDoc) -> int:
-    """Atomically use one question of the day's quota (separate from message history, so clearing chat does not reset it)."""
-    limit = chat_limit_for(user)
-    doc = await db.chat_usage.find_one_and_update(
-        {"user_id": user.id, "day": today_key()}, {"$inc": {"count": 1}}, upsert=True, return_document=True)
-    if doc["count"] > limit:
-        await db.chat_usage.update_one({"_id": doc["_id"]}, {"$inc": {"count": -1}})
-        msg = (f"Wykorzystano {limit} pytań na dziś w Premium. Wróć jutro." if is_premium(user)
-               else f"Wykorzystano {limit} darmowych pytań na dziś. Wróć jutro lub przejdź na Premium.")
-        raise HTTPException(429, msg)
-    return limit - doc["count"]
-
-
-async def refund_chat(user_id: str):
-    await db.chat_usage.update_one({"user_id": user_id, "day": today_key(), "count": {"$gt": 0}}, {"$inc": {"count": -1}})
-
-
-@api.get("/chat")
-async def chat_history(user: UserDoc = Depends(current_user)):
-    msgs = await db.chat_messages.find({"user_id": user.id}, {"_id": 0, "user_id": 0}).sort("created_at", -1).to_list(60)
-    return {"messages": list(reversed(msgs)), "remaining": await chat_remaining(user), "limit": chat_limit_for(user),
-            "is_premium": is_premium(user)}
-
-
-@api.delete("/chat")
-async def chat_clear(user: UserDoc = Depends(current_user)):
-    await db.chat_messages.delete_many({"user_id": user.id})
-    return {"ok": True}
-
-
-@api.post("/chat/stream")
-async def chat_stream(data: ChatIn, user: UserDoc = Depends(current_user)):
-    remaining = await reserve_chat(user)
-    prof = await db.profiles.find_one({"user_id": user.id}) or {}
-    path = await get_path(user.id, None, ROADMAP_PROJ)
-    path_txt = "Użytkownik nie wybrał jeszcze ścieżki kariery."
-    if path and path.get("milestones"):
-        lines = []
-        for m in path["milestones"]:
-            ts = ", ".join(f"{t['title']} ({'zdobyte' if t['done'] else 'do zrobienia'})" for t in m["tasks"])
-            lines.append(f"- {m['title']}: {ts}")
-        path_txt = f"Wybrana ścieżka: {path['career']['title']}\n" + "\n".join(lines)
-    history = await db.chat_messages.find({"user_id": user.id}, {"_id": 0}).sort("created_at", -1).to_list(12)
-    history_txt = "\n".join(f"{'Użytkownik' if h['role'] == 'user' else 'Doradca'}: {h['text']}" for h in reversed(history))
-    system = (
-        "Jesteś ciepłym, konkretnym doradcą zawodowym w aplikacji Zawodowcy, pomagającym ludziom zmienić zawód w Polsce. "
-        "Odpowiadasz po polsku, zwięźle (maks. ok. 150-200 słów), praktycznie, z konkretnymi krokami. "
-        "Pisz zwykłym tekstem bez markdown (bez **, # i tabel); listy zapisuj w nowych liniach zaczynając od '• '. Nie wymyślaj konkretnych adresów URL — zamiast tego podawaj frazy do wyszukania "
-        "lub nazwy serwisów (Pracuj.pl, OLX Praca, LinkedIn, YouTube, urząd pracy, praca.gov.pl).\n\n"
-        f"Profil użytkownika: {profile_text(prof.get('answers', {}))}\n\n{path_txt}"
-    )
-    prompt = (f"Dotychczasowa rozmowa:\n{history_txt}\n\n" if history_txt else "") + f"Nowe pytanie użytkownika: {data.text}"
-    await db.chat_messages.insert_one({"id": uuid.uuid4().hex, "user_id": user.id, "role": "user", "text": data.text, "created_at": now_iso()})
-
-    async def gen():
-        chat = LlmChat(api_key=LLM_KEY, session_id=str(uuid.uuid4()), system_message=system).with_model(*FAST_MODEL)
-        full = ""
-        try:
-            async for ev in chat.stream_message(UserMessage(text=prompt)):
-                if isinstance(ev, TextDelta):
-                    full += ev.content
-                    yield f"data: {json.dumps({'t': ev.content}, ensure_ascii=False)}\n\n"
-                elif isinstance(ev, StreamDone):
-                    break
-        except Exception:
-            logger.exception("chat failed")
-            yield f"data: {json.dumps({'error': 'Doradca chwilowo nie odpowiada. Spróbuj ponownie.'}, ensure_ascii=False)}\n\n"
-        if full:
-            await db.chat_messages.insert_one({"id": uuid.uuid4().hex, "user_id": user.id, "role": "assistant", "text": full, "created_at": now_iso()})
-        else:
-            await refund_chat(user.id)
-        left = remaining if full else remaining + 1
-        yield f"data: {json.dumps({'done': True, 'remaining': left})}\n\n"
-
-    return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 # ---------------------------------------------------------------- admin panel
@@ -1065,11 +1327,10 @@ app.add_middleware(CORSMiddleware, allow_credentials=False, allow_origins=["*"],
 @app.on_event("startup")
 async def startup():
     await db.users.create_index("email", unique=True)
-    await db.chat_messages.create_index([("user_id", 1), ("created_at", -1)])
-    await db.chat_usage.create_index([("user_id", 1), ("day", 1)], unique=True)
     async for d in db.roadmaps.find({"path_id": {"$exists": False}}, {"_id": 1}):
         await db.roadmaps.update_one({"_id": d["_id"]}, {"$set": {"path_id": uuid.uuid4().hex[:12], "active": True}})
     await db.users.create_index("username_lower", unique=True, sparse=True)
+    await db.gen_usage.create_index([("user_id", 1), ("month", 1)], unique=True)
     await db.premium_grants.create_index("email", unique=True)
     if ADMIN_EMAILS:
         await db.users.update_many({"email": {"$in": list(ADMIN_EMAILS)}}, {"$set": {"role": "admin"}})

@@ -55,9 +55,8 @@ export default function Quiz() {
   const next = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     if (!isLast) return setStep(step + 1);
-    // re-editing an existing profile generates new AI proposals, so it's ad-gated
-    // like other AI-generation actions; the very first onboarding quiz is not.
-    if (edit && !(await watchAd("otrzymać nowe propozycje zawodów"))) return;
+    // every AI generation is ad-gated, including the very first onboarding quiz.
+    if (!(await watchAd("otrzymać propozycje zawodów"))) return;
     setSaving(true);
     setError("");
     try {
@@ -126,9 +125,9 @@ export default function Quiz() {
 
       <KeyboardStickyView offset={{ opened: insets.bottom }} style={styles.sticky}>
         <View style={[styles.stickyInner, { paddingBottom: insets.bottom + spacing.md }]}>
-          {edit && isLast && showAds ? (
+          {isLast && showAds ? (
             <Text style={styles.notice} testID="quiz-ad-notice">
-              Przed nowymi propozycjami zobaczysz krótką reklamę.
+              Przed propozycjami zobaczysz krótką reklamę.
             </Text>
           ) : null}
           <Button

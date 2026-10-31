@@ -54,7 +54,7 @@ export function AuthHero({ topInset }: { topInset: number }) {
       </Svg>
 
       <Text style={styles.logo} testID="app-logo" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} maxFontSizeMultiplier={1.1}>
-        zawodowcy<Text style={{ color: colors.onBrandPrimary, opacity: 0.6 }}>.</Text>
+        Zawodowcy
       </Text>
       <Text style={styles.tagline} testID="app-tagline" numberOfLines={2} maxFontSizeMultiplier={1.2}>
         Zmiana zawodu i nowa ścieżka kariery — w każdej branży

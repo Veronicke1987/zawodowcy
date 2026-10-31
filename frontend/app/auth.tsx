@@ -114,6 +114,16 @@ export default function AuthScreen() {
             secureTextEntry
             onSubmitEditing={submit}
           />
+          {mode === "login" ? (
+            <Pressable
+              testID="auth-forgot-password-link"
+              onPress={() => router.push("/forgot-password")}
+              style={{ alignSelf: "flex-end" }}
+              hitSlop={8}
+            >
+              <Text style={styles.forgotLink}>Nie pamiętam hasła</Text>
+            </Pressable>
+          ) : null}
           {error ? <ErrorBox testID="auth-error" message={error} /> : null}
           <Button
             testID="auth-submit-button"
@@ -148,6 +158,7 @@ const useStyles = makeStyles((c) => ({
   segment: { flexDirection: "row", backgroundColor: c.surfaceTertiary, borderRadius: radius.pill, padding: 4, marginTop: spacing.sm },
   segBtn: { flex: 1, height: 44, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
   segText: { fontFamily: fonts.bold, fontSize: 14 },
+  forgotLink: { fontFamily: fonts.semibold, fontSize: 13, color: c.brandPrimary },
   input: {
     minHeight: 52,
     borderRadius: radius.md,

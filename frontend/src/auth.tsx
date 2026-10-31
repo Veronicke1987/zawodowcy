@@ -4,7 +4,18 @@ import { api, TOKEN_KEY } from "@/src/api";
 import { queryClient } from "@/src/query-client";
 import { storage } from "@/src/utils/storage";
 
-export type User = { id: string; email: string; name: string; role: string; has_profile: boolean; is_premium: boolean };
+export type Streak = { count: number; best: number; last_counted: string; last_seen: string; pending_restore: boolean; lost_count: number };
+export type User = {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  has_profile: boolean;
+  is_premium: boolean;
+  streak?: Streak;
+  roadmap_generations_used?: number;
+  roadmap_generations_limit?: number;
+};
 
 type AuthCtx = {
   user: User | null;
@@ -13,6 +24,7 @@ type AuthCtx = {
   register: (name: string, email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  completeAuth: (res: { access_token: string; user: User }) => Promise<void>;
 };
 
 const Ctx = createContext<AuthCtx>(null as unknown as AuthCtx);
@@ -57,7 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   };
 
-  return <Ctx.Provider value={{ user, loading, login, register, logout, refresh }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ user, loading, login, register, logout, refresh, completeAuth: handleAuth }}>{children}</Ctx.Provider>;
 }
 
 export const useAuth = () => useContext(Ctx);

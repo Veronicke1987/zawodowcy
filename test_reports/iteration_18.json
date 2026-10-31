@@ -1,0 +1,25 @@
+{
+  "summary": "Frontend-only smoke test of moving the 'Wpisz stanowisko' (custom path) entry point from a conditional empty-state ghost button into an always-visible banner in the pinned header of Home tab (Zawody). All checks passed with no regressions.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "/app/frontend/app/(tabs)/index.tsx: banner (testID=matches-custom-path-banner) correctly moved into the sticky header View, rendered unconditionally regardless of data?.status (ready/pending/error/none). Old conditional ghost button removed from the 'none' empty state as described - no duplicate banner rendering confirmed."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A - not tested this round", "frontend": "100% (4/4 smoke checks passed)"},
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Verified for both ania_t1@test.pl (status ready) and test_ui_fresh@test.pl (status none) - banner visible in both, exactly 1 instance each, no duplicates. Checks performed: (1) banner visible immediately after login for ready-status user without scrolling, pinned below segmented tabs; (2) tapping banner (testID matches-custom-path-banner) navigates correctly to /custom-path screen (confirmed via page.url and screenshot showing 'Podaj stanowisko' form); (3) fresh/none-status user shows banner + quiz CTA with no duplicate/overlap; (4) switched 'Już teraz'/'Z nauką' segmented tabs - banner, streak badge (testID matches-streak-badge), and chat icon (testID matches-open-chat) all remain visible and correctly positioned, recommendations list renders fine with no overlapping elements.",
+  "rca_of_issue": "N/A - no bugs found"
+}

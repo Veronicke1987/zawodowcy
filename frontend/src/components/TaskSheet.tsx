@@ -4,7 +4,7 @@ import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from "rea
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, Milestone, Resource, Task, TaskResources } from "@/src/api";
-import { Button, ErrorBox, IconButton, Ionicons, IconName, PressableScale, Txt } from "@/src/components/ui";
+import { AiNote, Button, ErrorBox, IconButton, Ionicons, IconName, PressableScale, Txt } from "@/src/components/ui";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 const TYPE_ICON: Record<string, IconName> = {
@@ -97,6 +97,7 @@ export function TaskSheet({ task, onClose, onToggle }: { task: Task | null; onCl
                 {r.resources.map((res, i) => (
                   <ResourceRow key={i} res={res} testID={`task-resource-${i}`} />
                 ))}
+                <AiNote />
               </View>
             ) : null}
           </ScrollView>
@@ -204,6 +205,7 @@ export function MilestoneSheet({
                 <Ionicons name="chevron-forward" size={18} color={colors.muted} />
               </PressableScale>
             ))}
+            <AiNote />
           </ScrollView>
         </>
       ) : null}

@@ -13,7 +13,6 @@ const FEATURES: { icon: React.ComponentProps<typeof Ionicons>["name"]; title: st
   { icon: "compass", title: "Profil zawodowy", text: "Krótka ankieta dopasowuje zawody do Twoich umiejętności i zainteresowań." },
   { icon: "trending-up", title: "Ścieżka kariery", text: "Wizualna mapa kroków — od miejsca, w którym jesteś, do nowego zawodu." },
   { icon: "book", title: "Plan nauki", text: "Tygodniowy plan kursów, szkoleń i działań, które przybliżają do celu." },
-  { icon: "chatbubbles", title: "Doradca AI", text: "Czat z asystentem AI, który odpowiada na pytania o zmianę zawodu." },
 ];
 
 export default function LegalHome() {
@@ -27,7 +26,7 @@ export default function LegalHome() {
       <ScrollView contentContainerStyle={{ paddingTop: insets.top + spacing.xl, paddingBottom: insets.bottom + spacing.xxl }}>
         <View style={styles.hero}>
           <Txt variant="display" style={{ textAlign: "center" }} testID="legal-app-name">
-            zawodowcy<Txt variant="display" style={{ color: colors.brandPrimary }}>.</Txt>
+            Zawodowcy
           </Txt>
           <Txt style={{ textAlign: "center", marginTop: spacing.sm }}>
             Aplikacja mobilna, która pomaga znaleźć nowy zawód i pokazuje, krok po kroku, jak go zdobyć.

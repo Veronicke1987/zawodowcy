@@ -8,6 +8,7 @@ import { api } from "@/src/api";
 import { useAds } from "@/src/ads/AdsProvider";
 import { useAuth } from "@/src/auth";
 import { Button, Ionicons, IconName, PressableScale, Txt } from "@/src/components/ui";
+import { StreakCard } from "@/src/components/Streak";
 import { usesNativeTabs } from "@/src/navigation";
 import { queryClient } from "@/src/query-client";
 import { fonts, makeStyles, radius, setThemeName, spacing, ThemeName, themeLabels, themes, useTheme } from "@/src/theme";
@@ -55,19 +56,20 @@ export default function Profile() {
           </View>
         </View>
 
+        <StreakCard />
+
         <View style={{ gap: spacing.md }}>
-          <Txt variant="heading">Premium i doradca</Txt>
+          <Txt variant="heading">Premium</Txt>
           {user?.role === "admin" ? (
             <Row icon="shield-checkmark-outline" title="Panel administratora" subtitle="Użytkownicy i darmowe Premium" testID="profile-admin" onPress={() => router.push("/admin")} />
           ) : null}
           <Row
             icon="diamond-outline"
             title={user?.is_premium ? "Masz Premium" : "Zawodowcy Premium"}
-            subtitle={user?.is_premium ? "Bez reklam · zarządzaj subskrypcją" : "Wyłącz reklamy i zyskaj więcej rozmów z doradcą"}
+            subtitle={user?.is_premium ? "Bez reklam · zarządzaj subskrypcją" : "Wyłącz reklamy przy generowaniu"}
             testID="profile-premium"
             onPress={() => router.push("/premium")}
           />
-          <Row icon="chatbubbles-outline" title="Doradca kariery" subtitle="Zapytaj AI o swoją ścieżkę" testID="profile-chat" onPress={() => router.push("/chat")} />
           <Row icon="calendar-outline" title="Plan nauki" subtitle="Tydzień po tygodniu" testID="profile-plan" onPress={() => router.push("/plan")} />
         </View>
 

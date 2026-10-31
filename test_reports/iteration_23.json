@@ -1,0 +1,34 @@
+{
+  "summary": "Verification round for 3 NEW items: (1) app-launch AI-info modal, (2) Premium monthly roadmap-generation quota (25/month), (3) pricing/copy changes on premium screen. ALL 3 ITEMS PASS both backend and frontend. Backend: 7/7 new pytest tests passed, including a full 27-generation quota-math test (deleting roadmaps between creations to bypass the 3-path cap) confirming roadmap_generations_used increments 1:1 per NEW roadmap, exceeds the limit=25 by generation 26-27 as expected, reactivating an existing path does NOT bump the counter, and 3x daily-plan/settings regeneration never bumps the counter either. Free users' counter increments too (consistency) with no change to their always-ad-gated behavior. Frontend: live-tested AI-info modal shows correctly for a FREE user (go-premium + dismiss buttons, no premium-note) immediately after login, does not reappear on tab switches, and correctly flips to the PREMIUM variant (no go-premium button, premium-note with '25 nowych ścieżek kariery miesięcznie' text, dismiss button) after granting Premium and reloading/re-logging in. Premium screen confirmed: '19 zł' monthly price, exactly 2 perks ('Bez reklam', '25 nowych ścieżek miesięcznie' with quota explicitly mentioned in description), and premium-usage testID showing 'Wykorzystano 0 z 25 nowych ścieżek w tym miesiącu' for an active premium user. Regression: custom-path roadmap creation -> ready -> daily-plan settings completed with no 500s for both a fresh free user and the quota test's premium user; backend logs show no unhandled exceptions during the whole run.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter23_premium_quota_ai_modal.py",
+    "/app/test_reports/pytest/pytest_iter23.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py: bump_roadmap_gen(user.id) is called ONLY inside the two new-roadmap-creation endpoints (/api/roadmap and /api/roadmap/custom), and only on the branch that actually inserts a brand-new document — the 'same title already exists -> reactivate' branch returns early before reaching it. Confirmed correct via grep (only 2 call sites) and via live test (test_reactivating_existing_path_does_not_bump_counter passed).",
+    "server.py: no server-side enforcement of the ad-watch requirement exists anywhere (by design) — /api/roadmap and /api/roadmap/custom will always succeed regardless of ad status; all ad-gating (including the premiumQuota branch) is purely client-side in AdsProvider.tsx. This matches the review request's framing ('verify by code review ... the gating logic path is actually exercised') — AdsProvider.tsx's quotaExceeded correctly computes `user.is_premium && used >= limit` and watchRoadmapAd correctly routes premium-over-quota users into the same rewarded-ad modal (with premiumQuota=true, showing distinct copy 'Wykorzystano limit ścieżek w tym miesiącu' and hiding the 'Przejdź na Premium' button since they're already premium) while free users and under-quota premium users are handled as before.",
+    "public_user() (used by register/login/reset-password/me) and GET /api/premium both correctly compute roadmap_generations_used via a dedicated db.gen_usage collection keyed by (user_id, YYYY-MM), so it naturally resets every calendar month with no extra cron/cleanup job needed.",
+    "AiInfoModal.tsx correctly uses a module-level `shownThisSession` flag (not AsyncStorage/persisted state), so it reappears on every real cold start but not on tab navigation within the same JS session — matches spec exactly.",
+    "premium.tsx and backend PREMIUM_PLANS are in sync: monthly '19 zł', yearly unchanged '149,99 zł'; PERKS array has exactly 2 entries and the second perk's description text explicitly states the '25' quota number as required."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter23_premium_quota_ai_modal.py (new)"
+  ],
+  "success_rate": {"backend": "100% (7/7 new tests passed)", "frontend": "100% of manually tested flows passed, 0 bugs found"},
+  "seed_data_creation": "Backend tests created several TEST_ prefixed users (TEST_premquota_*, TEST_freequota_*, TEST_regress_*) with real-profession-titled roadmaps (REAL_JOBS pool used instead of fake 'TEST ...' titles because validate_profession()'s LLM classifier correctly rejects non-real job titles) — roadmaps cleaned up via DELETE /api/roadmap in fixture teardown, users left in DB. Frontend testing temporarily granted then cancelled Premium on the existing ania_t1@test.pl account via the UI demo subscribe/cancel flow — account restored to its original free state before finishing.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All 3 new-feature items (AI-info modal, premium monthly quota, pricing/perks copy) are fully verified both backend and frontend with zero bugs found this round. Quota math specifically: confirmed via a real 27-new-roadmap loop (deleting between each to bypass PREMIUM_PATH_LIMIT=3) that roadmap_generations_used increments exactly 1 per NEW roadmap and correctly exceeds roadmap_generations_limit=25 at generations 26-27; daily/weekly study-plan regeneration and path-reactivation never bump the counter. The premiumQuota ad-gating branch in AdsProvider.tsx/AdModal was verified via code review only (not live-exercised with a real premium user hitting generation #26 in the browser) since reproducing 26 live roadmap generations through the UI would be very slow/token-expensive — a future tester could do this live if paranoid, but the code path logic (quotaExceeded computation + premiumQuota flag threading into the modal copy/buttons) is straightforward and matches spec. No regressions found in quiz/roadmap/daily-plan/password-reset flows; backend logs clean of exceptions throughout this test run.",
+  "rca_of_issue": "N/A - no bugs found this round."
+}

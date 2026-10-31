@@ -1,0 +1,42 @@
+{
+  "summary": "Verification round for: (1) full removal of AI Chat Advisor, (2) tightened ad-gating on quiz/daily-plan flows, (3) shorter AI output. All 3 items PASS. Backend: 6/6 new pytest tests passed (chat routes 404, /api/premium has no chat-quota fields, full fresh-user regression flow quiz->recommendations->custom-path->roadmap->daily-plan settings/redo all reached 'ready' with no 500s). Frontend: confirmed via live browser automation that a brand-new user's FIRST quiz submission now shows quiz-ad-notice + ad modal (previously skipped), daily-plan-ad-notice shows on the 'redo this week' flow, /chat route renders Expo Router's Unmatched Route page, /legal shows exactly 3 features, Premium page shows exactly 2 perks, Road tab chip row starts with 'Plan nauki' with no Doradca chip, Profile tab Premium section has no Doradca kariery row, Home tab header has no chat icon. AI output (recommendation 'why', roadmap milestone description) sampled at 5 words each - clearly concise. One minor leftover copy bug found: Premium page hero subtitle still mentions 'doradcą' (chat advisor) even though the feature was removed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET/POST/DELETE /api/chat*", "issue": "Confirmed all return 404 - routes fully removed, no issue."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "premium.tsx hero subtitle", "issue": "Leftover copy references the removed chat advisor feature: 'Szybciej do nowego zawodu — z planem i doradcą na każdy dzień.' should be updated now that Doradca AI is deleted (e.g. drop 'i doradcą').", "testID": "N/A (plain Text, no testID)", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter22_chat_removal_ad_gating.py",
+    "/app/test_reports/pytest/pytest_iter22.xml"
+  ],
+  "action_items": [
+    "Update premium.tsx hero subtitle to remove the 'i doradcą na każdy dzień' reference to the deleted chat advisor feature (cosmetic, low priority).",
+    "Optional: verify daily-next-week-ad-notice live once a test account's week-2 unlock window is reached (could only verify via code review this round since ania_t1's next week was still locked by the weekly-unlock-day business rule; code at plan.tsx:313-318 correctly gates it behind showAds, consistent with quiz/settings patterns already verified live)."
+  ],
+  "critical_code_review_comments": [
+    "quiz.tsx: watchAd() is now called unconditionally before the final submit regardless of edit vs first-time (line 59), confirmed correct - no special-casing that skips the ad for first-time users anymore.",
+    "plan.tsx: daily-plan-ad-notice (line ~207) and daily-next-week-ad-notice (line ~315) are both correctly gated on `showAds` (AdsProvider: showAds = !!user && !user.is_premium), consistent with quiz-ad-notice pattern.",
+    "server.py: /api/premium response object (line 716-718) only returns is_premium/premium/plans/path_limit/demo - no free_chat_per_day/premium_chat_per_day fields remain, consistent with chat removal.",
+    "No backend routes for /chat remain anywhere in server.py (grep confirmed zero matches for @api.get/post/delete('/chat...')) - clean removal, not just disabled.",
+    "legal/index.tsx FEATURES array has exactly 3 entries (Profil zawodowy, Ścieżka kariery, Plan nauki); premium.tsx PERKS array has exactly 2 entries (Bez reklam, Wszystko od razu) - both match spec exactly.",
+    "AI output conciseness spot-check: recommendation 'why' field = 5 words, roadmap milestone description = 5 words, both clearly short/punchy phrases rather than paragraphs - tightened prompt limits appear effective. One daily-plan study item description sampled during live UI test was ~21 words (single sentence, not a paragraph) - borderline but not flagged as a real issue since it's not multi-sentence/unbounded."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter22_chat_removal_ad_gating.py (new)"
+  ],
+  "success_rate": {"backend": "100% (6/6 new tests passed)", "frontend": "100% of manually tested flows passed; 1 minor cosmetic copy bug found"},
+  "seed_data_creation": "Backend test registered TEST_fresh_<hex>@example.com via /api/auth/register for full regression flow (left in DB). Frontend manual testing registered 1 additional TEST_quizgate_<hex>@example.com fresh user to verify the first-quiz ad-gate live (left in DB, has 1 roadmap/recommendation set generated).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Item 1 (chat removal) FULLY VERIFIED both backend (404s, no chat quota fields in /api/premium) and frontend (no /chat route, no Doradca entry points in Home/Road/Profile/legal/Premium). Item 2 (ad-gating) VERIFIED LIVE for: first-time quiz submission (quiz-ad-notice + ad-modal shown, flow completes to ready recommendations) and daily-plan 'redo this week' (daily-plan-ad-notice shown on settings form when an existing plan is already ready). daily-next-week-ad-notice was only code-reviewed (not live-tested) because the test account's next week was still locked by the Saturday-unlock business rule - code at plan.tsx correctly gates it behind the same `showAds` flag used elsewhere, so it is very likely correct but a future tester could force-unlock a week (e.g. backdate week_start in DB) to confirm live if paranoid. Item 3 (shorter AI output) spot-checked: recommendation/roadmap text fields sampled at 5 words, daily-plan item descriptions ~15-21 words (single sentences) - noticeably more concise than prior iterations, no unbounded paragraphs observed. Only finding: premium.tsx hero subtitle still says 'z planem i doradcą na każdy dzień' - leftover reference to the deleted chat feature, cosmetic/low priority, safe for main agent to self-fix and does not need retesting beyond a visual check.",
+  "rca_of_issue": "N/A - no blocking bugs found this round. Single cosmetic copy leftover in premium.tsx is a simple text string, not a logic bug."
+}

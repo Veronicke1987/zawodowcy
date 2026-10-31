@@ -6,7 +6,8 @@ import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withRepeat, wit
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, Career, Recommendations } from "@/src/api";
-import { Badge, Button, ErrorBox, IconButton, Ionicons, PressableScale, Txt } from "@/src/components/ui";
+import { Badge, Button, ErrorBox, Ionicons, AiNote, PressableScale, Txt } from "@/src/components/ui";
+import { StreakBadge } from "@/src/components/Streak";
 import { usesNativeTabs } from "@/src/navigation";
 import { RESET_MODES } from "@/src/quiz-steps";
 import { queryClient } from "@/src/query-client";
@@ -44,25 +45,31 @@ export default function Matches() {
             </Txt>
             <Txt variant="title">Zawody dla Ciebie</Txt>
           </View>
-          <IconButton testID="matches-open-chat" icon="chatbubbles-outline" onPress={() => router.push("/chat")} />
+          <StreakBadge testID="matches-streak-badge" />
         </View>
-        <View style={styles.segment}>
-          {(
-            [
-              ["now", "Już teraz", "flash"],
-              ["future", "Z nauką", "school"],
-            ] as const
-          ).map(([k, label, icon]) => (
-            <Pressable
-              key={k}
-              testID={`matches-tab-${k}`}
-              onPress={() => setTab(k)}
-              style={[styles.segBtn, tab === k && { backgroundColor: colors.surface }]}
-            >
-              <Ionicons name={icon} size={16} color={tab === k ? colors.brandPrimary : colors.muted} />
-              <Text style={[styles.segText, { color: tab === k ? colors.onSurface : colors.muted }]}>{label}</Text>
-            </Pressable>
-          ))}
+        <View style={styles.segmentRow}>
+          <View style={styles.segment}>
+            {(
+              [
+                ["now", "Już teraz", "flash"],
+                ["future", "Z nauką", "school"],
+              ] as const
+            ).map(([k, label, icon]) => (
+              <Pressable
+                key={k}
+                testID={`matches-tab-${k}`}
+                onPress={() => setTab(k)}
+                style={[styles.segBtn, tab === k && { backgroundColor: colors.surface }]}
+              >
+                <Ionicons name={icon} size={16} color={tab === k ? colors.brandPrimary : colors.muted} />
+                <Text style={[styles.segText, { color: tab === k ? colors.onSurface : colors.muted }]}>{label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Pressable testID="matches-custom-path-chip" onPress={() => router.push("/custom-path")} style={styles.customChip}>
+            <Ionicons name="add-circle-outline" size={18} color={colors.brandPrimary} />
+            <Text style={styles.customChipText}>Własny cel</Text>
+          </Pressable>
         </View>
       </View>
 
@@ -78,7 +85,7 @@ export default function Matches() {
         </View>
       ) : data?.status === "none" ? (
         <View style={{ padding: spacing.xl, gap: spacing.lg }}>
-          <Txt>Nie masz jeszcze propozycji zawodów. Wypełnij krótką ankietę.</Txt>
+          <Txt>Nie masz jeszcze propozycji zawodów. Wypełnij krótką ankietę, a AI dobierze zawody dopasowane do Ciebie.</Txt>
           <Button testID="matches-start-quiz" title="Wypełnij ankietę" onPress={() => router.push("/quiz")} />
         </View>
       ) : (
@@ -105,6 +112,7 @@ export default function Matches() {
           }
           renderItem={({ item, index }) => <CareerCard career={item} index={index} onPress={() => router.push(`/career/${item.id}`)} />}
           ListEmptyComponent={<Txt>Brak propozycji w tej kategorii.</Txt>}
+          ListFooterComponent={list.length ? <AiNote style={{ marginTop: spacing.sm }} /> : null}
         />
       )}
     </View>
@@ -170,7 +178,8 @@ const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surface },
   header: { paddingHorizontal: spacing.xl, paddingBottom: spacing.md, gap: spacing.xs, backgroundColor: c.surface },
   titleRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  segment: { flexDirection: "row", backgroundColor: c.surfaceTertiary, borderRadius: radius.pill, padding: 4, marginTop: spacing.md },
+  segmentRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.md },
+  segment: { flex: 1, flexDirection: "row", backgroundColor: c.surfaceTertiary, borderRadius: radius.pill, padding: 4 },
   segBtn: { flex: 1, height: 44, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6 },
   segText: { fontFamily: fonts.bold, fontSize: 14 },
   summary: { flexDirection: "row", gap: spacing.sm, backgroundColor: c.brandTertiary, borderRadius: radius.lg, padding: spacing.lg },
@@ -183,6 +192,20 @@ const useStyles = makeStyles((c) => ({
     borderWidth: 1,
     borderColor: c.border,
   },
+  orRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  orLine: { flex: 1, height: 1, backgroundColor: c.divider },
+  customChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    height: 44,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1.5,
+    borderColor: c.brandPrimary,
+    borderStyle: "dashed",
+  },
+  customChipText: { fontFamily: fonts.bold, fontSize: 13, color: c.brandPrimary },
   cardTop: { flexDirection: "row", gap: spacing.md, alignItems: "flex-start" },
   cardTitle: { fontFamily: fonts.bold, fontSize: 18, lineHeight: 24, color: c.onSurface },
   match: { backgroundColor: c.brandPrimary, borderRadius: radius.md, paddingHorizontal: 10, paddingVertical: 6, alignItems: "center" },

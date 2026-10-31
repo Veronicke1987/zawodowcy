@@ -1,0 +1,35 @@
+{
+  "summary": "Backend-only test of the trimmed career_detail endpoint (GET /api/careers/{career_id}) per review request. Full flow executed: register -> PUT /api/profile -> POST /api/recommendations/generate -> poll /api/recommendations -> fresh (uncached) career_detail call -> repeat (cached) call. Also quick regression check on /api/roadmap/custom and /api/roadmap/tasks/{id}/resources.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter26_career_detail_trimmed.py",
+    "/app/test_reports/pytest/pytest_results_iter26.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "career_detail (server.py ~line 670-696) trim verified correct: profile fetch and 'Profil użytkownika' injection removed, new isolation line 'To jest odrębne, samodzielne zapytanie...' present and working - response for one career_id did not leak context from other careers/profile.",
+    "Caching logic (db.career_details, keyed by user_id+career_id) unchanged and verified: fresh call 2.27s (real LLM round trip via FAST_MODEL), cached repeat call 0.07s with byte-identical detail payload.",
+    "No regressions in find_career/404 handling, job_links(), or roadmap/custom and task resources endpoints."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter26_career_detail_trimmed.py (new pytest file; fixed one bug while writing it - endpoint is PUT /api/profile, not POST as assumed from the review request wording)"
+  ],
+  "success_rate": {
+    "backend": "100% (5/5 tests passed)",
+    "frontend": "not tested (backend-only scope per request)"
+  },
+  "seed_data_creation": "Created one TEST_iter26_* throwaway user via /api/auth/register with a profile, recommendations, and a custom roadmap ('Analityk danych'); not cleaned up (low-risk test data, read-mostly verification).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "test_iter26_career_detail_trimmed.py validates: (1) register -> PUT /api/profile (note: PUT not POST) -> generate+poll recommendations to get a real career_id; (2) GET /api/careers/{career_id} fresh call returns 200 with career/detail/job_links, detail has all 7 expected keys as non-empty values, content verified Polish via diacritics heuristic; (3) repeat call returns identical cached detail in <5s (actual: 0.07s vs 2.27s fresh); (4) career_levels sanity-printed and manually inspected - for 'asystentka działu księgowości' it returned a realistic accounting-specific ladder (Asystentka -> Specjalista ds. księgowości -> Księgowa -> Starszy księgowy -> Główny księgowy), confirming the isolation prompt produces profession-specific (not generic junior/mid/senior) levels; (5) no 500/502 or exceptions in backend logs; (6) /api/roadmap/custom and /api/roadmap/tasks/{id}/resources regression-checked, both 200.",
+  "rca_of_issue": "No bugs found. The trimmed career_detail prompt works as intended: removing the profile injection did not break output quality/structure, and the added isolation instruction appears effective (no cross-career bleed observed in this test, though this is a qualitative/single-sample observation, not exhaustively proven across many careers)."
+}

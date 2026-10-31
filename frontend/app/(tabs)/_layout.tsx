@@ -4,6 +4,7 @@ import { NativeTabs } from "expo-router/native-tabs";
 import { Platform } from "react-native";
 
 import { useAuth } from "@/src/auth";
+import { AiInfoModal } from "@/src/components/AiInfoModal";
 import { usesNativeTabs } from "@/src/navigation";
 import { fonts, useTheme } from "@/src/theme";
 
@@ -14,25 +15,30 @@ export default function TabsLayout() {
 
   if (usesNativeTabs) {
     return (
-      <NativeTabs tintColor={colors.brandPrimary}>
-        <NativeTabs.Trigger name="index">
-          <NativeTabs.Trigger.Icon sf="briefcase.fill" />
-          <NativeTabs.Trigger.Label>Zawody</NativeTabs.Trigger.Label>
-        </NativeTabs.Trigger>
-        <NativeTabs.Trigger name="road">
-          <NativeTabs.Trigger.Icon sf="map.fill" />
-          <NativeTabs.Trigger.Label>Droga</NativeTabs.Trigger.Label>
-        </NativeTabs.Trigger>
-        <NativeTabs.Trigger name="profile">
-          <NativeTabs.Trigger.Icon sf="person.fill" />
-          <NativeTabs.Trigger.Label>Profil</NativeTabs.Trigger.Label>
-        </NativeTabs.Trigger>
-      </NativeTabs>
+      <>
+        <AiInfoModal />
+        <NativeTabs tintColor={colors.brandPrimary}>
+          <NativeTabs.Trigger name="index">
+            <NativeTabs.Trigger.Icon sf="briefcase.fill" />
+            <NativeTabs.Trigger.Label>Zawody</NativeTabs.Trigger.Label>
+          </NativeTabs.Trigger>
+          <NativeTabs.Trigger name="road">
+            <NativeTabs.Trigger.Icon sf="map.fill" />
+            <NativeTabs.Trigger.Label>Droga</NativeTabs.Trigger.Label>
+          </NativeTabs.Trigger>
+          <NativeTabs.Trigger name="profile">
+            <NativeTabs.Trigger.Icon sf="person.fill" />
+            <NativeTabs.Trigger.Label>Profil</NativeTabs.Trigger.Label>
+          </NativeTabs.Trigger>
+        </NativeTabs>
+      </>
     );
   }
 
   return (
-    <Tabs
+    <>
+      <AiInfoModal />
+      <Tabs
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: colors.brandPrimary,
@@ -71,5 +77,6 @@ export default function TabsLayout() {
         }}
       />
     </Tabs>
+    </>
   );
 }

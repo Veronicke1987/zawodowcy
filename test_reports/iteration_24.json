@@ -1,0 +1,39 @@
+{
+  "summary": "Backend-only verification of the 'real Polish career-ladder titles' bug fix in server.py (run_roadmap() and career_detail() prompts). Confirmed fix works correctly via live API calls: Nauczyciel roadmap and career_levels now produce real Polish teacher ranks instead of invented corporate titles. Regression on a corporate-style profession (marketing specialist) confirms junior->senior->manager ladders still generate correctly (no overcorrection). General smoke tests (recommendations, premium info) pass with no 500s. Also code-reviewed ask_llm() to confirm every LLM call uses a fresh uuid4 session_id with zero history (the 'leaking history' theory was correctly ruled out, confirmed via code review only as instructed).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter24_teacher_career_ladder.py",
+    "/app/test_reports/pytest/pytest_iter24.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Confirmed: ask_llm() (server.py line 223) creates a brand-new LlmChat with session_id=str(uuid.uuid4()) and no prior messages on every call -- recommendations, career_detail, run_roadmap, daily plan are fully isolated/stateless. No session-leak bug exists.",
+    "Confirmed: both run_roadmap() (line 771-788) and career_detail() (line 670-697) prompts now explicitly request REAL/officially-existing Polish job titles, give 3 contrasting examples (teacher/developer/doctor), and explicitly forbid inventing titles -- matches the described fix."
+  ],
+  "test_results": {
+    "nauczyciel_roadmap_milestones": ["Nauczyciel stażysta", "Nauczyciel kontraktowy", "Nauczyciel mianowany", "Nauczyciel dyplomowany"],
+    "nauczyciel_career_detail_career_levels": ["Nauczyciel stażysta", "Nauczyciel kontraktowy", "Nauczyciel mianowany", "Nauczyciel dyplomowany", "Wicedyrektor lub dyrektor"],
+    "marketing_specialist_roadmap_milestones_regression_check": ["Asystent ds. marketingu", "Młodszy specjalista ds. marketingu", "Specjalista ds. marketingu", "Starszy specjalista ds. marketingu", "Kierownik ds. marketingu"],
+    "finance_careers_career_levels_sample (pre-existing cached user ania_t1)": {
+      "Specjalista ds. controllingu / Junior Controller": ["Junior Controller", "Controller", "Specjalista ds. controllingu", "Starszy specjalista ds. controllingu", "Kontroler finansowy / Kierownik controllingu"],
+      "Analityk danych / Data Analyst (finanse)": ["Junior Data Analyst", "Data Analyst", "Senior Data Analyst", "Data Analyst Team Leader", "Data Analytics Manager"]
+    },
+    "conclusion": "No invented/fake titles (e.g. 'kierownik zespołu nauczycieli', 'ekspert dydaktyczny') appeared in any of 3 fresh LLM generations tested. Fix verified working as described. No overcorrection observed on corporate-ladder professions."
+  },
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "not tested (not in scope for this round)"},
+  "seed_data_creation": "Created and fully cleaned up: 4 temporary TEST_iter24_* users, 1 seeded recommendations doc (career_id=testnauczycielcid1), associated career_details/roadmaps docs used only to exercise the career_detail() endpoint for 'Nauczyciel' (since that profession wasn't naturally present in any existing user's AI-generated recommendations). All test artifacts deleted after verification.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "This bug fix is verified and closed. test_iter24_teacher_career_ladder.py is reusable for future regression (it registers its own fresh TEST_ user each run, no pre-existing data dependency, and cleans itself via path/title checks). Note: PREMIUM_PATH_LIMIT=3 applies per user, so the test script creates one fresh user per run to avoid hitting the limit across iterations.",
+  "rca_of_issue": "N/A - this was a fix-verification round, not new RCA. Original RCA (confirmed accurate by main agent and re-confirmed via code review here): hardcoded generic 'junior/specjalista/senior/kierownik/dyrektor' example in both prompts biased the LLM into forcing that corporate structure onto professions with different real career ladders (teaching). Fix: prompts now explicitly request REAL Polish titles per-profession with 3 contrasting examples and an explicit prohibition on inventing titles."
+}
