@@ -83,6 +83,7 @@ export type StudyPlan = {
   status: "none" | "pending" | "ready" | "error";
   path_id?: string;
   career?: Career;
+  is_premium?: boolean;
   plan?: {
     hours_per_week: number;
     summary: string;
@@ -134,7 +135,7 @@ export type DailyItem = {
   long_term: boolean;
   done: boolean;
 };
-export type DailyDay = { date: string; weekday: number; free: boolean; items: DailyItem[] };
+export type DailyDay = { date: string; weekday: number; free: boolean; locked: boolean; locked_count: number; items: DailyItem[] };
 export type DailyWeek = { index: number; start_date: string; days: DailyDay[] };
 export type DailyPlanSettings = { time_mode: "daily" | "weekly"; time_value: number; free_days: number[] };
 export type DailyPlan = {
@@ -143,6 +144,8 @@ export type DailyPlan = {
   career?: Career;
   settings?: DailyPlanSettings;
   weeks?: DailyWeek[];
+  next_status?: "none" | "pending" | "ready" | "error";
+  can_generate_next?: boolean;
   is_premium?: boolean;
 };
 

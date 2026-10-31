@@ -26,8 +26,8 @@ const TYPE_LABEL: Record<string, string> = {
   article: "Poradnik",
 };
 
-function Sheet({ visible, onClose, children, testID }: { visible: boolean; onClose: () => void; children: React.ReactNode; testID: string }) {
-  const styles = useStyles();
+export function Sheet({ visible, onClose, children, testID }: { visible: boolean; onClose: () => void; children: React.ReactNode; testID: string }) {
+  const styles = useTaskSheetStyles();
   const insets = useSafeAreaInsets();
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
@@ -43,7 +43,7 @@ function Sheet({ visible, onClose, children, testID }: { visible: boolean; onClo
 }
 
 export function TaskSheet({ task, onClose, onToggle }: { task: Task | null; onClose: () => void; onToggle: (t: Task) => void }) {
-  const styles = useStyles();
+  const styles = useTaskSheetStyles();
   const { colors } = useTheme();
   const q = useQuery({
     queryKey: ["resources", task?.id],
@@ -106,8 +106,8 @@ export function TaskSheet({ task, onClose, onToggle }: { task: Task | null; onCl
   );
 }
 
-function Block({ title, items, numbered, icon }: { title: string; items: string[]; numbered?: boolean; icon?: IconName }) {
-  const styles = useStyles();
+export function Block({ title, items, numbered, icon }: { title: string; items: string[]; numbered?: boolean; icon?: IconName }) {
+  const styles = useTaskSheetStyles();
   const { colors } = useTheme();
   return (
     <View style={{ gap: spacing.sm }}>
@@ -128,8 +128,8 @@ function Block({ title, items, numbered, icon }: { title: string; items: string[
   );
 }
 
-function ResourceRow({ res, testID }: { res: Resource; testID: string }) {
-  const styles = useStyles();
+export function ResourceRow({ res, testID }: { res: Resource; testID: string }) {
+  const styles = useTaskSheetStyles();
   const { colors } = useTheme();
   return (
     <PressableScale testID={testID} onPress={() => WebBrowser.openBrowserAsync(res.url)} style={styles.res}>
@@ -159,7 +159,7 @@ export function MilestoneSheet({
   onClose: () => void;
   onTask: (t: Task) => void;
 }) {
-  const styles = useStyles();
+  const styles = useTaskSheetStyles();
   const { colors } = useTheme();
   return (
     <Sheet visible={!!milestone} onClose={onClose} testID="milestone-sheet">
@@ -211,7 +211,7 @@ export function MilestoneSheet({
   );
 }
 
-const useStyles = makeStyles((c) => ({
+export const useTaskSheetStyles = makeStyles((c) => ({
   backdrop: { flex: 1, backgroundColor: c.overlay },
   sheet: {
     maxHeight: "88%",

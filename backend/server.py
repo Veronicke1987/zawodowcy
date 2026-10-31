@@ -651,6 +651,8 @@ Zwróć JSON:
 
 @api.post("/roadmap/study-plan")
 async def create_study_plan(path_id: Optional[str] = None, user: UserDoc = Depends(current_user)):
+    if not is_premium(user):
+        raise HTTPException(403, "Plan tygodniowy to funkcja Premium. Przejdź na Premium, aby go odblokować.")
     doc = await get_path(user.id, path_id, {"_id": 0, "path_id": 1, "status": 1})
     if not doc or doc["status"] != "ready":
         raise HTTPException(400, "Najpierw wybierz ścieżkę i poczekaj, aż droga będzie gotowa.")
@@ -665,26 +667,34 @@ async def create_study_plan(path_id: Optional[str] = None, user: UserDoc = Depen
 async def get_study_plan(path_id: Optional[str] = None, user: UserDoc = Depends(current_user)):
     doc = await get_path(user.id, path_id, {"_id": 0, "study_plan": 1, "career": 1, "path_id": 1})
     if not doc:
-        return {"status": "none"}
+        return {"status": "none", "is_premium": is_premium(user)}
     sp = doc.get("study_plan") or {"status": "none"}
     if sp.get("status") == "pending" and datetime.now(timezone.utc) - datetime.fromisoformat(sp["started_at"]) > timedelta(minutes=4):
         sp["status"] = "error"
-    return {"status": sp.get("status"), "plan": sp.get("plan"), "career": doc.get("career"), "path_id": doc["path_id"]}
+    return {"status": sp.get("status"), "plan": sp.get("plan"), "career": doc.get("career"), "path_id": doc["path_id"],
+            "is_premium": is_premium(user)}
 
 
 # ---------------------------------------------------------------- daily plan (free + premium)
 WEEKDAY_NAMES_PL = ["poniedziałek", "wtorek", "środa", "czwartek", "piątek", "sobota", "niedziela"]
+FREE_UNLOCKED_STUDY_DAYS = 2  # free users get this many study days per week for free; the rest needs an ad
 
 
 def monday_of(d: date) -> date:
     return d - timedelta(days=d.weekday())
 
 
-async def run_daily_plan(user_id: str, path_id: str, job_id: str, week_index: int, week_start: date):
+def week_unlock_day(d: date) -> date:
+    """Saturday of the week containing d — when the NEXT week becomes generatable."""
+    return monday_of(d) + timedelta(days=5)
+
+
+async def run_daily_plan(user_id: str, path_id: str, job_id: str, week_index: int, week_start: date, premium: bool, is_next: bool = False):
     doc = await db.roadmaps.find_one({"user_id": user_id, "path_id": path_id})
     settings = (doc.get("daily_plan") or {}).get("settings", {})
     free_days = {d for d in settings.get("free_days", []) if 0 <= d <= 6}
     active_days = [i for i in range(7) if i not in free_days]
+    done_ids = {t["id"] for m in doc.get("milestones", []) for t in m.get("tasks", []) if t.get("done")}
     pending = [{"id": t["id"], "title": t["title"], "type": t.get("type", "other")}
                for m in doc.get("milestones", []) for t in m.get("tasks", []) if not t.get("done")]
     time_desc = (f"{settings.get('time_value')} minut dziennie w dni nauki" if settings.get("time_mode") == "daily"
@@ -706,27 +716,33 @@ Nie planuj nic w dni wolne.
 Zwróć JSON:
 {{"days": [{{"weekday": 0-6, "items": [{{"title": "krótka nazwa", "description": "1 zdanie co dokładnie zrobić",
             "minutes": liczba, "task_id": "id z listy lub null", "long_term": true/false}}]}}]}}"""
+    status_field = "daily_plan.next_status" if is_next else "daily_plan.status"
+    job_field = "daily_plan.next_job_id" if is_next else "daily_plan.job_id"
     try:
         data = await ask_llm(ANALYSIS_MODEL, SYSTEM_PL, prompt)
         by_weekday = {d.get("weekday"): d.get("items", []) for d in data.get("days", [])}
+        study_pos = 0
         days_out = []
         for i in range(7):
             d = week_start + timedelta(days=i)
             is_free = i in free_days
             items = []
+            locked = False
             if not is_free:
+                locked = (not premium) and study_pos >= FREE_UNLOCKED_STUDY_DAYS
                 for it in by_weekday.get(i, []):
                     items.append({"id": uuid.uuid4().hex[:10], "title": it.get("title", ""), "description": it.get("description", ""),
                                   "minutes": it.get("minutes"), "milestone_task_id": it.get("task_id"),
                                   "long_term": bool(it.get("long_term")), "done": False})
-            days_out.append({"date": d.isoformat(), "weekday": i, "free": is_free, "items": items})
+                study_pos += 1
+            days_out.append({"date": d.isoformat(), "weekday": i, "free": is_free, "locked": locked, "items": items})
         week = {"index": week_index, "start_date": week_start.isoformat(), "days": days_out}
-        await db.roadmaps.update_one({"user_id": user_id, "path_id": path_id, "daily_plan.job_id": job_id},
-                                     {"$set": {"daily_plan.status": "ready"}, "$push": {"daily_plan.weeks": week}})
+        await db.roadmaps.update_one({"user_id": user_id, "path_id": path_id, job_field: job_id},
+                                     {"$set": {status_field: "ready"}, "$push": {"daily_plan.weeks": week}})
     except Exception as e:
         logger.exception("daily plan failed")
-        await db.roadmaps.update_one({"user_id": user_id, "path_id": path_id, "daily_plan.job_id": job_id},
-                                     {"$set": {"daily_plan.status": "error", "daily_plan.error": str(e)[:200]}})
+        await db.roadmaps.update_one({"user_id": user_id, "path_id": path_id, job_field: job_id},
+                                     {"$set": {status_field: "error", "daily_plan.error": str(e)[:200]}})
 
 
 @api.post("/roadmap/daily-plan/settings")
@@ -744,8 +760,52 @@ async def set_daily_plan_settings(data: DailyPlanSettingsIn, path_id: Optional[s
     week_start = monday_of(date.today())
     await db.roadmaps.update_one({"user_id": user.id, "path_id": doc["path_id"]},
                                  {"$set": {"daily_plan": {"settings": settings, "status": "pending", "job_id": job_id, "weeks": [], "started_at": now_iso()}}})
-    spawn(run_daily_plan(user.id, doc["path_id"], job_id, 0, week_start))
+    spawn(run_daily_plan(user.id, doc["path_id"], job_id, 0, week_start, is_premium(user)))
     return {"status": "pending"}
+
+
+@api.post("/roadmap/daily-plan/next-week")
+async def generate_next_week(path_id: Optional[str] = None, user: UserDoc = Depends(current_user)):
+    doc = await get_path(user.id, path_id, {"_id": 0, "path_id": 1, "daily_plan": 1})
+    dp = (doc or {}).get("daily_plan")
+    if not dp or dp.get("status") != "ready" or not dp.get("weeks"):
+        raise HTTPException(400, "Najpierw ułóż plan dzienny.")
+    if dp.get("next_status") == "pending":
+        return {"status": "pending"}
+    last = dp["weeks"][-1]
+    last_start = date.fromisoformat(last["start_date"])
+    next_index = last["index"] + 1
+    if any(w["index"] == next_index for w in dp["weeks"]):
+        return {"status": "ready"}
+    if date.today() < week_unlock_day(last_start):
+        raise HTTPException(400, "Kolejny tydzień odblokuje się w sobotę bieżącego tygodnia.")
+    job_id = uuid.uuid4().hex
+    await db.roadmaps.update_one({"user_id": user.id, "path_id": doc["path_id"]},
+                                 {"$set": {"daily_plan.next_status": "pending", "daily_plan.next_job_id": job_id, "daily_plan.next_started_at": now_iso()}})
+    spawn(run_daily_plan(user.id, doc["path_id"], job_id, next_index, last_start + timedelta(days=7), is_premium(user), is_next=True))
+    return {"status": "pending"}
+
+
+@api.post("/roadmap/daily-plan/weeks/{week_index}/unlock")
+async def unlock_week(week_index: int, path_id: Optional[str] = None, user: UserDoc = Depends(current_user)):
+    q: dict = {"user_id": user.id, "daily_plan.weeks.index": week_index}
+    if path_id:
+        q["path_id"] = path_id
+    res = await db.roadmaps.update_one(q, {"$set": {"daily_plan.weeks.$[w].days.$[].locked": False}}, array_filters=[{"w.index": week_index}])
+    if not res.matched_count:
+        raise HTTPException(404, "Nie znaleziono tygodnia.")
+    return {"ok": True}
+
+
+def _serialize_daily_week(week: dict, premium: bool) -> dict:
+    out_days = []
+    for d in week.get("days", []):
+        locked = bool(d.get("locked")) and not premium
+        if locked:
+            out_days.append({**d, "items": [], "locked": True, "locked_count": len(d.get("items", []))})
+        else:
+            out_days.append({**d, "locked": False, "locked_count": 0})
+    return {**week, "days": out_days}
 
 
 @api.get("/roadmap/daily-plan")
@@ -756,8 +816,19 @@ async def get_daily_plan(path_id: Optional[str] = None, user: UserDoc = Depends(
     dp = doc["daily_plan"]
     if dp.get("status") == "pending" and dp.get("started_at") and datetime.now(timezone.utc) - datetime.fromisoformat(dp["started_at"]) > timedelta(minutes=4):
         dp["status"] = "error"
-    return {"status": dp.get("status"), "settings": dp.get("settings"), "weeks": dp.get("weeks", []),
-            "career": doc.get("career"), "path_id": doc["path_id"], "is_premium": is_premium(user)}
+    if dp.get("next_status") == "pending" and dp.get("next_started_at") and datetime.now(timezone.utc) - datetime.fromisoformat(dp["next_started_at"]) > timedelta(minutes=4):
+        dp["next_status"] = "error"
+    premium = is_premium(user)
+    weeks = [_serialize_daily_week(w, premium) for w in dp.get("weeks", [])]
+    can_generate_next = False
+    if weeks and dp.get("status") == "ready" and dp.get("next_status") != "pending":
+        last_start = date.fromisoformat(weeks[-1]["start_date"])
+        next_index = weeks[-1]["index"] + 1
+        if date.today() >= week_unlock_day(last_start) and not any(w["index"] == next_index for w in weeks):
+            can_generate_next = True
+    return {"status": dp.get("status"), "settings": dp.get("settings"), "weeks": weeks,
+            "next_status": dp.get("next_status", "none"), "can_generate_next": can_generate_next,
+            "career": doc.get("career"), "path_id": doc["path_id"], "is_premium": premium}
 
 
 @api.patch("/roadmap/daily-plan/items/{item_id}")
@@ -770,6 +841,52 @@ async def toggle_daily_item(item_id: str, data: TaskToggle, path_id: Optional[st
     if not res.matched_count:
         raise HTTPException(404, "Nie znaleziono punktu planu.")
     return {"ok": True, "done": data.done}
+
+
+def _find_daily_item(doc: dict, item_id: str):
+    for w in doc.get("daily_plan", {}).get("weeks", []):
+        for d in w.get("days", []):
+            for it in d.get("items", []):
+                if it["id"] == item_id:
+                    return it
+    return None
+
+
+@api.get("/roadmap/daily-plan/items/{item_id}/resources")
+async def daily_item_resources(item_id: str, user: UserDoc = Depends(current_user)):
+    doc = await db.roadmaps.find_one({"user_id": user.id, "daily_plan.weeks.days.items.id": item_id})
+    if not doc:
+        raise HTTPException(404, "Nie znaleziono punktu planu.")
+    item = _find_daily_item(doc, item_id)
+    if not item:
+        raise HTTPException(404, "Nie znaleziono punktu planu.")
+    if item.get("milestone_task_id"):
+        return await task_resources(item["milestone_task_id"], user)
+    if item.get("resources"):
+        return item["resources"]
+    prof = await db.profiles.find_one({"user_id": user.id}) or {}
+    city = (prof.get("answers") or {}).get("city", "") or ""
+    prompt = f"""Czynność z planu dnia na ścieżce kariery "{doc['career']['title']}": {item['title']} — {item['description']}.
+Miejscowość użytkownika: {city or 'nie podano'}.
+
+Podpowiedz, jak dokładnie wykonać tę czynność dziś. Podaj konkretne, darmowe lub tanie materiały.
+Zwróć JSON:
+{{"overview": "1-2 zdania czym jest ta czynność i dlaczego pomaga", "steps": ["3-5 konkretnych krok\u00f3w"],
+ "free_tips": ["1-3 sposoby zrobienia tego za darmo"], "specializations": [], "time_estimate": "ile to zwykle trwa",
+ "resources": [{{"type": "youtube|course|studies|urzad_pracy|webinar|certificate|article", "platform": "np. YouTube, Coursera, Google",
+                "title": "nazwa zasobu", "description": "1 zdanie", "query": "fraza wyszukiwania po polsku"}}]}}
+Podaj 3-5 zasob\u00f3w, w tym przynajmniej jeden YouTube."""
+    try:
+        data = await ask_llm(FAST_MODEL, SYSTEM_PL, prompt)
+    except Exception:
+        logger.exception("daily item resources failed")
+        raise HTTPException(502, "Nie udało się przygotować podpowiedzi. Spróbuj ponownie.")
+    for r in data.get("resources", []):
+        r["url"] = resource_url(r, city)
+    await db.roadmaps.update_one(
+        {"user_id": user.id, "daily_plan.weeks.days.items.id": item_id},
+        {"$set": {"daily_plan.weeks.$[].days.$[].items.$[it].resources": data}}, array_filters=[{"it.id": item_id}])
+    return data
 
 
 # ---------------------------------------------------------------- advisor chat
