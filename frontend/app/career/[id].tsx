@@ -1,12 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import * as WebBrowser from "expo-web-browser";
-import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Modal, ScrollView, Text, View } from "react-native";
 import Animated, { FadeIn, ZoomIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Circle, Path } from "react-native-svg";
 
 import { useAds } from "@/src/ads/AdsProvider";
 import { api, Career, PathsResponse } from "@/src/api";
@@ -15,8 +15,30 @@ import { queryClient } from "@/src/query-client";
 import { playSuccess } from "@/src/sound";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
-const HERO =
-  "https://images.unsplash.com/photo-1510519138101-570d1dca3d66?crop=entropy&cs=srgb&fm=jpg&ixlib=rb-4.1.0&q=85&w=1200";
+// Keyword → icon mapping so every career gets a fitting, consistent flat-icon
+// hero (same visual language as the auth screen) instead of a generic stock photo.
+const ICON_RULES: [RegExp, IconName][] = [
+  [/it\b|program|dane|analiti?k|wdroż|cyfrow|technolog/i, "laptop"],
+  [/opiek|zdrow|pielęgn|terapeut|medyczn/i, "heart"],
+  [/gastronom|kuch|kelner|piekarz|cukiernik/i, "restaurant"],
+  [/elektryk|mechanik|budow|hydraulik|stolarz|spawacz|monter/i, "hammer"],
+  [/transport|kierowc|logisty|magazyn|spedyc/i, "car"],
+  [/fryzjer|kosmet|uroda|wizaż/i, "cut"],
+  [/nauczyciel|edukac|trener|szkolen/i, "school"],
+  [/sprzedaż|handel|marketing|reklam/i, "megaphone"],
+  [/finans|księgow|bank|podatk/i, "calculator"],
+  [/prawn|kancelar/i, "briefcase"],
+  [/rolnict|ogrodnict|lesnict|zielen/i, "leaf"],
+  [/sztuk|kultur|floryst|projekt.*graficzn/i, "color-palette"],
+  [/sport|fitness|trener personal/i, "fitness"],
+  [/kadr|hr\b|personal/i, "people"],
+];
+
+function careerIcon(career?: Career): IconName {
+  const haystack = `${career?.title ?? ""} ${career?.industry ?? ""}`;
+  for (const [re, icon] of ICON_RULES) if (re.test(haystack)) return icon;
+  return "briefcase";
+}
 
 type Detail = {
   description: string;
@@ -91,8 +113,16 @@ export default function CareerDetail() {
     <View style={styles.root}>
       <ScrollView contentContainerStyle={{ paddingBottom: 120 + insets.bottom }} testID="career-detail-scroll">
         <View style={styles.hero}>
-          <Image source={{ uri: HERO }} style={{ flex: 1 }} contentFit="cover" transition={300} />
-          <LinearGradient colors={["rgba(0,0,0,0.35)", "transparent", colors.surface]} style={StyleFill} />
+          <LinearGradient colors={[colors.brandPrimary, colors.brandSecondary]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleFill} />
+          <Svg style={StyleFill} viewBox="0 0 390 220" preserveAspectRatio="xMidYMid slice">
+            <Circle cx={345} cy={30} r={100} fill={colors.onBrandPrimary} opacity={0.08} />
+            <Circle cx={20} cy={200} r={80} fill={colors.onBrandPrimary} opacity={0.07} />
+            <Path d="M -10 190 C 90 150, 140 190, 220 140 S 330 90, 400 70" stroke={colors.onBrandPrimary} strokeOpacity={0.3} strokeWidth={3} strokeDasharray="2,10" strokeLinecap="round" fill="none" />
+          </Svg>
+          <View style={styles.heroBadge} testID="career-hero-icon">
+            <Ionicons name={careerIcon(career)} size={46} color={colors.onBrandTertiary} />
+          </View>
+          <LinearGradient colors={["transparent", colors.surface]} style={[StyleFill, { top: "60%" }]} />
         </View>
         <View style={styles.body}>
           {career ? (
@@ -239,7 +269,20 @@ function List({ items, icon, color, iconSize = 18 }: { items: string[]; icon: Ic
 
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surface },
-  hero: { height: 220 },
+  hero: { height: 220, overflow: "hidden", alignItems: "center", justifyContent: "center" },
+  heroBadge: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: c.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
+  },
   body: { paddingHorizontal: spacing.xl, gap: spacing.md, marginTop: -spacing.xxl },
   metaRow: { flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" },
   loading: { flexDirection: "row", gap: spacing.md, alignItems: "center", padding: spacing.lg, backgroundColor: c.surfaceSecondary, borderRadius: radius.lg },
