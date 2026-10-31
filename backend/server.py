@@ -238,8 +238,9 @@ SYSTEM_PL = (
     "Jesteś doświadczonym polskim doradcą zawodowym i analitykiem rynku pracy. "
     "Znasz aktualne oferty pracy publikowane w Polsce na Pracuj.pl, OLX Praca, LinkedIn, Indeed i w urzędach pracy, "
     "w tym typowe wymagania pracodawców. Odpowiadasz WYŁĄCZNIE poprawnym JSON-em, bez komentarzy i bez markdown. "
-    "Wszystkie teksty po polsku. BĄDŹ MAKSYMALNIE ZWIĘZŁY: krótkie, konkretne frazy, zero lania wody, zero powtórzeń "
-    "i zbędnych wyjaśnień — trzymaj się ściśle podanych limitów długości/liczby słów dla każdego pola."
+    "Wszystkie teksty po polsku, pełnymi, konkretnymi zdaniami — bez lania wody i bez zbędnych powtórzeń, ale "
+    "wystarczająco rozbudowane, by były naprawdę pomocne. Trzymaj się podanych limitów długości/liczby słów dla każdego pola — "
+    "to maksimum, nie cel do skrócenia na siłę."
 )
 
 
@@ -602,10 +603,11 @@ Weź pod uwagę to, czego użytkownik nie lubi, jego charakter i odporność zaw
 {MODE_RULES.get(answers.get("reset_mode") or "search", MODE_RULES["search"])}
 
 Zwróć JSON:
-{{"summary": "1 krótkie zdanie (max 15 słów) podsumowania profilu i mocnych stron",
- "now": [{{"title": "nazwa stanowiska jak w ogłoszeniach", "industry": "branża", "summary": "max 10 słów", "why": "dlaczego pasuje, max 10 słów",
+{{"summary": "2-3 zdania (max 35 słów) podsumowania profilu, mocnych stron i kierunku, w jakim warto szukać",
+ "now": [{{"title": "nazwa stanowiska jak w ogłoszeniach", "industry": "branża", "summary": "czym się zajmuje na co dzień, max 20 słów",
+          "why": "dlaczego akurat ten zawód pasuje do tej osoby, max 20 słów",
           "match": 0-100, "salary": "np. 6 000 – 8 500 zł brutto", "demand": "wysoki|średni|niski", "ai_risk": "niskie|średnie|wysokie",
-          "missing_skills": ["..."]}}],
+          "missing_skills": ["czego jeszcze brakuje, krótkie frazy"]}}],
  "future": [ ...ten sam format... ]}}"""
     try:
         data = await ask_llm(ANALYSIS_MODEL, SYSTEM_PL, prompt)
@@ -676,12 +678,12 @@ async def career_detail(career_id: str, user: UserDoc = Depends(current_user)):
     prompt = f"""To jest odrębne, samodzielne zapytanie — dotyczy WYŁĄCZNIE poniższego jednego zawodu, nie odwołuj się do innych zawodów ani wcześniejszych rozmów.
 Zawód: {career['title']} (branża: {career.get('industry', '')}).
 
-Opisz ten zawód na podstawie typowych ofert pracy w Polsce (Pracuj.pl, OLX, LinkedIn). Zwróć JSON:
-{{"description": "2 krótkie zdania opisu zawodu (max 30 słów)",
- "daily_tasks": ["4-6 typowych codziennych zadań, max 6 słów każde"],
- "pros": ["4-5 plusów, max 6 słów każdy"], "cons": ["3-5 minusów, max 6 słów każdy"],
- "requirements": ["5-8 typowych wymagań z ogłoszeń, krótkie frazy, np. wykształcenie, znajomość programów, prawo jazdy kat. B, języki"],
- "how_to_start": ["4-6 konkretnych kroków, max 10 słów każdy"],
+Opisz ten zawód szczegółowo, na podstawie typowych ofert pracy w Polsce (Pracuj.pl, OLX, LinkedIn). Zwróć JSON:
+{{"description": "3-4 zdania (max 60 słów) pełnego opisu zawodu — czym się zajmuje, w jakich firmach/branżach pracuje, jak wygląda typowy dzień",
+ "daily_tasks": ["5-7 typowych codziennych zadań, pełne frazy, max 12 słów każde"],
+ "pros": ["4-6 plusów, pełne frazy, max 12 słów każdy"], "cons": ["3-5 minusów, pełne frazy, max 12 słów każdy"],
+ "requirements": ["6-9 typowych wymagań z ogłoszeń, krótkie frazy, np. wykształcenie, znajomość programów, prawo jazdy kat. B, języki"],
+ "how_to_start": ["5-7 konkretnych kroków, max 16 słów każdy"],
  "career_levels": ["4-5 kolejnych, REALNYCH, oficjalnie istniejących w Polsce stanowisk/stopni awansu w TYM KONKRETNYM zawodzie, od wejściowego do najwyższego — np. dla nauczyciela: nauczyciel stażysta, kontraktowy, mianowany, dyplomowany, wicedyrektor, dyrektor szkoły; dla programisty: junior, mid, senior, lead, CTO. NIE wymyślaj nazw stanowisk, których nie ma w tym zawodzie — jeśli nie masz pewności, użyj najbardziej powszechnie znanej, rzeczywistej struktury awansu."]}}"""
     try:
         detail = await ask_llm(FAST_MODEL, SYSTEM_PL, prompt)
@@ -781,9 +783,9 @@ Do każdego stanowiska podaj 3-5 MAŁYCH punktów (zadań), które użytkownik m
 opartych na wymaganiach z prawdziwych ofert pracy (np. studia z danej dziedziny, kurs Excela, znajomość programu Symfonia/SAP/Comarch,
 prawo jazdy kat. B, certyfikat, język angielski B2, 2 lata doświadczenia). Uwzględnij to, co użytkownik już ma — takie zadania oznacz "already_has": true.
 Zwróć JSON:
-{{"milestones": [{{"title": "stanowisko", "description": "max 1 krótkie zdanie (max 15 słów)", "salary": "widełki brutto", "years": "np. 0-2 lata",
-   "requirements": ["wymagania z ofert, krótkie frazy"],
-   "tasks": [{{"title": "krótka nazwa zadania", "description": "max 10 słów, co dokładnie zrobić",
+{{"milestones": [{{"title": "stanowisko", "description": "1-2 pełne zdania (max 30 słów) czym się zajmuje na tym stanowisku", "salary": "widełki brutto", "years": "np. 0-2 lata",
+   "requirements": ["wymagania z ofert, pełne frazy, max 12 słów każda"],
+   "tasks": [{{"title": "krótka nazwa zadania", "description": "max 18 słów, co dokładnie zrobić i jak to zdobyć",
               "type": "studies|course|skill|certificate|language|license|experience|other", "already_has": false}}]}}]}}"""
     try:
         data = await ask_llm(ANALYSIS_MODEL, SYSTEM_PL, prompt)
@@ -951,13 +953,13 @@ Podpowiedz, jak zdobyć ten punkt. Jeśli to studia — opisz kierunki, tryby (d
 Jeśli to umiejętność/program (np. Excel) — kanały YouTube, platformy szkoleniowe, jak korzystać darmowo (np. Excel w przeglądarce w Microsoft 365 online),
 kursy finansowane przez urząd pracy (bon szkoleniowy, KFS), webinary.
 Zwróć JSON:
-{{"overview": "2-3 zdania (max 35 słów) czym jest ten punkt, dlaczego jest ważny i co konkretnie zyskujesz go zdobywając",
- "steps": ["4-6 konkretnych kroków jak to zdobyć, max 14 słów każdy"],
- "free_tips": ["3-5 sposobów zrobienia tego za darmo lub taniej, max 14 słów każdy"],
+{{"overview": "3-4 zdania (max 55 słów) czym jest ten punkt, dlaczego jest ważny i co konkretnie zyskujesz go zdobywając",
+ "steps": ["5-7 konkretnych kroków jak to zdobyć, max 20 słów każdy"],
+ "free_tips": ["3-5 sposobów zrobienia tego za darmo lub taniej, max 20 słów każdy"],
  "specializations": ["tylko dla studiów/kursów: możliwe specjalizacje, inaczej pusta lista"],
  "time_estimate": "ile to zwykle trwa",
  "resources": [{{"type": "youtube|course|studies|urzad_pracy|webinar|certificate|article", "platform": "np. YouTube, Coursera, Udemy, LinkedIn Learning, Google",
-                "title": "nazwa zasobu", "description": "max 12 słów", "query": "fraza wyszukiwania po polsku"}}]}}
+                "title": "nazwa zasobu", "description": "max 16 słów", "query": "fraza wyszukiwania po polsku"}}]}}
 Podaj 5-8 zasobów, w tym przynajmniej jeden YouTube i jeden urzad_pracy."""
     try:
         data = await ask_llm(FAST_MODEL, SYSTEM_PL, prompt)
@@ -990,10 +992,10 @@ Do zdobycia (w kolejności drogi):
 Ułóż realistyczny plan nauki na 8 tygodni, skupiony na najbliższych punktach drogi. Każdy tydzień: cel i 3-5 konkretnych zadań z liczbą godzin.
 Uwzględnij darmowe materiały, kursy z urzędu pracy, ćwiczenia praktyczne i budowanie portfolio/CV.
 Zwróć JSON:
-{{"hours_per_week": liczba, "summary": "1 krótkie zdanie",
- "weeks": [{{"week": 1, "focus": "temat tygodnia", "goal": "co umiesz po tygodniu",
-            "items": [{{"title": "zadanie", "description": "max 10 słów jak to zrobić", "hours": liczba}}]}}],
- "tips": ["3 rady motywacyjne/organizacyjne, max 10 słów każda"]}}"""
+{{"hours_per_week": liczba, "summary": "1-2 zdania (max 30 słów) podsumowania planu i podejścia",
+ "weeks": [{{"week": 1, "focus": "temat tygodnia", "goal": "co umiesz po tygodniu, pełne zdanie",
+            "items": [{{"title": "zadanie", "description": "max 18 słów jak dokładnie to zrobić", "hours": liczba}}]}}],
+ "tips": ["3-4 rady motywacyjne/organizacyjne, pełne zdania, max 18 słów każda"]}}"""
     try:
         plan = await ask_llm(ANALYSIS_MODEL, SYSTEM_PL, prompt)
         await db.roadmaps.update_one({"user_id": user_id, "path_id": path_id, "study_plan.job_id": job_id},
@@ -1072,7 +1074,7 @@ czynność jako long_term=true i zaplanuj dla niej tylko JEDNĄ czynność w CA�
 dniu nauki z listy powyżej — np. "Sprawdź swoje postępy w nauce na studiach/kursie w tym tygodniu".
 Nie planuj nic w dni wolne.
 Zwróć JSON z polem "weekday" = numer dnia tygodnia zgodnie z datami powyżej (0=poniedziałek, 1=wtorek, 2=środa, 3=czwartek, 4=piątek, 5=sobota, 6=niedziela):
-{{"days": [{{"weekday": 0-6, "items": [{{"title": "krótka nazwa (max 6 słów)", "description": "max 10 słów, co dokładnie zrobić",
+{{"days": [{{"weekday": 0-6, "items": [{{"title": "krótka nazwa (max 8 słów)", "description": "max 18 słów, co dokładnie zrobić",
             "minutes": liczba, "task_id": "id z listy lub null", "long_term": true/false}}]}}]}}"""
     status_field = "daily_plan.next_status" if is_next else "daily_plan.status"
     job_field = "daily_plan.next_job_id" if is_next else "daily_plan.job_id"
@@ -1233,10 +1235,10 @@ Miejscowość użytkownika: {city or 'nie podano'}.
 
 Podpowiedz, jak dokładnie wykonać tę czynność dziś. Podaj konkretne, darmowe lub tanie materiały.
 Zwróć JSON:
-{{"overview": "1-2 zdania (max 25 słów) czym jest ta czynność i dlaczego pomaga", "steps": ["4-6 konkretnych krok\u00f3w, max 14 słów każdy"],
- "free_tips": ["2-4 sposoby zrobienia tego za darmo, max 12 słów każdy"], "specializations": [], "time_estimate": "ile to zwykle trwa",
+{{"overview": "2-3 zdania (max 45 słów) czym jest ta czynność i dlaczego pomaga", "steps": ["4-6 konkretnych krok\u00f3w, max 18 słów każdy"],
+ "free_tips": ["2-4 sposoby zrobienia tego za darmo, max 18 słów każdy"], "specializations": [], "time_estimate": "ile to zwykle trwa",
  "resources": [{{"type": "youtube|course|studies|urzad_pracy|webinar|certificate|article", "platform": "np. YouTube, Coursera, Google",
-                "title": "nazwa zasobu", "description": "max 12 słów", "query": "fraza wyszukiwania po polsku"}}]}}
+                "title": "nazwa zasobu", "description": "max 16 słów", "query": "fraza wyszukiwania po polsku"}}]}}
 Podaj 4-6 zasob\u00f3w, w tym przynajmniej jeden YouTube."""
     try:
         data = await ask_llm(FAST_MODEL, SYSTEM_PL, prompt)

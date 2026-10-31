@@ -1,0 +1,41 @@
+{
+  "summary": "Backend-only end-to-end test of the 'restore rich/detailed AI output' change across server.py (SYSTEM_PL + per-field word-limit increases in run_recommendations, career_detail, run_roadmap, task_resources, run_study_plan, run_daily_plan, daily_item_resources). Full flow with a fresh TEST_ user: register -> PUT /api/profile -> POST /api/recommendations/generate (poll) -> GET /api/careers/{id} fresh+cached -> POST /api/roadmap/custom (elektryk, poll) -> GET /api/roadmap/tasks/{id}/resources fresh+cached -> premium subscribe -> POST /api/roadmap/study-plan (poll) -> daily-plan settings+GET (poll) -> GET daily-plan/items/{id}/resources. All 14 test assertions passed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter27_rich_detail_restore.py",
+    "/app/test_reports/pytest/pytest_results_iter27.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "SYSTEM_PL (server.py ~237-244) verified: brevity instruction removed, replaced with 'pełnymi, konkretnymi zdaniami... wystarczająco rozbudowane' + 'limit to maksimum, nie cel do skrócenia na siłę' — matches spec exactly.",
+    "run_recommendations: summary observed 28-30 words (cap 35, min was 15) with 2-3 full sentences; per-career summary/why observed 6-11 words each (cap 20, was 10) — all noticeably fuller than terse single fragments, still well-formed Polish sentences.",
+    "career_detail: description observed 31-41 words (cap 60, was 30) as a real 3-sentence paragraph; career_levels for a non-corporate profession ('Specjalista ds. obsługi klienta') returned a realistic profession-specific ladder, not generic junior/mid/senior. Caching verified: fresh call 4.04-4.17s (real LLM round trip), cached repeat 0.06-0.28s with byte-identical detail payload (requests.Session().get().json() equality check).",
+    "run_roadmap (custom path 'elektryk'): milestone description 11-12 words (cap 30, was 15), task description 10-11 words (cap 18, was 10) — fuller than before but still concise/well-formed.",
+    "task_resources: overview observed 37-39 words (cap 55, was 35), 5+ resources returned each with a resolvable url. Caching verified: fresh 4.53-5.36s vs cached 0.06-0.07s, identical payload.",
+    "run_study_plan (premium weekly plan): goal/item descriptions 11-14 words, fuller sentences as intended; premium toggle via POST /api/premium/subscribe worked, study-plan generation + polling worked end to end.",
+    "run_daily_plan + daily_item_resources: daily item title 4 words (well under new 8-word cap), description 8 words; for an item WITHOUT milestone_task_id, GET /api/roadmap/daily-plan/items/{id}/resources generated fresh content with overview 32 words (cap 45, was 25) — richer and still coherent.",
+    "No 500/502 errors observed in backend logs across the entire flow; all LLM JSON responses parsed cleanly (no markdown wrapping); all text verified Polish.",
+    "Isolation instructions ('To jest odrębne, samodzielne zapytanie...') present and intact in career_detail, task_resources, and daily_item_resources prompts — spot-check consistent with earlier full audits in iteration_25/26 (no chat history, each call is a fresh LlmChat session per ask_llm's session_id=str(uuid.uuid4()))."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter27_rich_detail_restore.py (new pytest file covering the full rich-output-restore flow)"
+  ],
+  "success_rate": {
+    "backend": "100% (14/14 tests passed)",
+    "frontend": "not tested (backend-only scope per request)"
+  },
+  "seed_data_creation": "Created one TEST_iter27_* throwaway user via /api/auth/register with profile, recommendations, a custom roadmap for 'elektryk', premium subscription (demo toggle), study plan, and daily plan; not cleaned up (low-risk, prefixed test data).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "test_iter27_rich_detail_restore.py must be run with `-n 0` (serial) since classes share state sequentially (TestRecommendations -> TestCareerDetail -> TestRoadmapCustom -> TestTaskResources -> TestStudyPlan -> TestDailyPlan); the repo's pytest.ini default addopts (-n 2 --dist loadscope) breaks this ordering across xdist workers, so override with `-n 0` explicitly. Also note: /api/auth/register returns 201 (not 200), and daily-plan settings endpoint is POST /api/roadmap/daily-plan/settings (not PUT). All richness targets from the review request were met: longer multi-sentence outputs across recommendations, career detail, roadmap milestones/tasks, task/daily-item resources, and study plan, while staying within the new (larger) word caps. Caching confirmed working/unchanged (fast cached repeats, byte-identical payloads) for career_detail and task_resources.",
+  "rca_of_issue": "No bugs found in the application. The rich-output restoration change behaves exactly as specified: SYSTEM_PL's brevity override was removed, and every per-field prompt's word/sentence caps were raised as described in the review request, producing fuller, well-formed Polish sentences across every affected endpoint without breaking JSON validity, caching, or isolation from other context."
+}
