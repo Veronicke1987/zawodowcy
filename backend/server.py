@@ -35,10 +35,10 @@ db = client[os.environ['DB_NAME']]
 
 JWT_SECRET = os.environ['JWT_SECRET']
 JWT_ALG = "HS256"
-LLM_KEY = os.environ['OPENAI_API_KEY']
+LLM_KEY = os.environ['ANTHROPIC_API_KEY']
 ADMIN_EMAILS = {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
-ANALYSIS_MODEL = ("openai", "gpt-4.1-mini")
-FAST_MODEL = ("openai", "gpt-4.1-mini")
+ANALYSIS_MODEL = ("anthropic", "claude-haiku-5-5")
+FAST_MODEL = ("anthropic", "claude-haiku-5-5")
 
 # Emergent managed email proxy (password-reset codes). This is a CONSTANT, never read
 # from the environment, so it survives deployment. The key itself is provisioned by
