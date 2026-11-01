@@ -1,0 +1,30 @@
+{
+  "summary": "Tested the new show/hide password toggle (eye icon) feature on app/auth.tsx and app/forgot-password.tsx via Playwright on the web preview (mobile viewport 390x844). All 5 requested scenarios PASS: toggle reveals/re-masks text with no data loss on both screens, autoCapitalize/autoCorrect regression (previous fix) still intact, email/name fields correctly have no eye icon, and full regression (register -> forgot-password reset using logged backend code -> login with new password -> login with existing seeded user ania_t1@test.pl) all succeeded with no errors.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "No action needed - feature verified working correctly, no regressions found."
+  ],
+  "critical_code_review_comments": [
+    "Field component in auth.tsx correctly derives secureTextEntry from canReveal/reveal state; text value is preserved across toggles since it's driven by the same controlled 'password' state, not re-created on toggle - confirmed no data loss via input_value() checks before/after toggle.",
+    "forgot-password.tsx reset-password-new-password-input implements the same pattern locally with its own revealPassword state - consistent implementation, same testID naming convention followed.",
+    "autoCapitalize='none', autoCorrect={false}, spellCheck={false}, textContentType props remain intact on both password fields after this change - confirmed via DOM attribute inspection (autocapitalize='none') and by typing a lowercase password that stayed lowercase.",
+    "Confirmed auth-email-input, auth-name-input have no '-toggle-visibility' sibling elements (eye icon correctly scoped to secureTextEntry fields only via canReveal check)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A - frontend-only testing, backend used only for log inspection", "frontend": "100% (5/5 steps passed)"},
+  "seed_data_creation": "Created test user qatoggle_1793550824@test.pl (password reset from 'ToggleTest1' to 'NewToggleP2' during the forgot-password test). Not a real/protected account; left in DB as test artifact.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Reset code for test emails is logged in /var/log/supervisor/backend.err.log with pattern 'password reset code for <email>: <code>'. To simulate logout on web preview, clear both localStorage AND all IndexedDB databases (AsyncStorage web shim uses IndexedDB, not localStorage) then reload - plain localStorage.clear() is insufficient.",
+  "rca_of_issue": "Step-by-step: (1) /auth register field: typed 'mySecretPw1', confirmed masked by default (type=password), tapped eye -> text visible as plain value 'mySecretPw1' matching exactly, tapped again -> re-masked, value still intact in both cases. (2) Typed fresh lowercase 'lowercasepass1' via keyboard.type -> stayed lowercase (autocapitalize='none' confirmed via DOM attr) - no regression. (3) Confirmed no toggle icon present for auth-email-input or auth-name-input (query_selector returned None for both). (4) Registered new user qatoggle_<ts>@test.pl, simulated logout, used forgot-password flow: requested code, grepped backend logs for the code, entered code + new password 'NewToggleP2' on reset-password-new-password-input, toggled eye icon reveal/re-mask twice confirming value 'NewToggleP2' persisted exactly through both toggles, submitted successfully (landed on /quiz via completeAuth auto-login, no error). (5) Logged out again, logged back in with the NEW password (typed, not via toggle) -> success (landed on /quiz, no auth-error). (6) Logged out, logged in with existing seeded user ania_t1@test.pl/test123 -> success (landed on home '/' with existing profile/recommendations visible, no auth-error) confirming no regression for existing accounts. No bugs found."
+}

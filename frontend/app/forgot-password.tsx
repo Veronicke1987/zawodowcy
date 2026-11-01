@@ -1,12 +1,12 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Text, TextInput, View } from "react-native";
+import { Pressable, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
 import { useAuth } from "@/src/auth";
-import { Button, ErrorBox, IconButton, Txt } from "@/src/components/ui";
+import { Button, ErrorBox, IconButton, Ionicons, Txt } from "@/src/components/ui";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 export default function ForgotPassword() {
@@ -19,6 +19,8 @@ export default function ForgotPassword() {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [revealPassword, setRevealPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
@@ -42,6 +44,7 @@ export default function ForgotPassword() {
     setError("");
     if (code.trim().length !== 6) return setError(t.forgotPassword.invalidCode);
     if (newPassword.length < 6) return setError(t.forgotPassword.shortPassword);
+    if (newPassword !== confirmPassword) return setError(t.forgotPassword.passwordMismatch);
     setLoading(true);
     try {
       const res = await api<any>("/auth/reset-password", { method: "POST", body: { email: email.trim(), code: code.trim(), new_password: newPassword } });
@@ -117,20 +120,56 @@ export default function ForgotPassword() {
             </View>
             <View style={{ gap: spacing.sm }}>
               <Txt variant="label">{t.forgotPassword.newPasswordLabel}</Txt>
-              <TextInput
-                testID="reset-password-new-password-input"
-                value={newPassword}
-                onChangeText={setNewPassword}
-                placeholder={t.forgotPassword.newPasswordPlaceholder}
-                placeholderTextColor={colors.muted}
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-                spellCheck={false}
-                textContentType="newPassword"
-                style={styles.input}
-                onSubmitEditing={resetPassword}
-              />
+              <View style={{ justifyContent: "center" }}>
+                <TextInput
+                  testID="reset-password-new-password-input"
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  placeholder={t.forgotPassword.newPasswordPlaceholder}
+                  placeholderTextColor={colors.muted}
+                  secureTextEntry={!revealPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  spellCheck={false}
+                  textContentType="newPassword"
+                  style={[styles.input, { paddingRight: spacing.xl + spacing.lg }]}
+                />
+                <Pressable
+                  testID="reset-password-new-password-toggle-visibility"
+                  onPress={() => setRevealPassword((v) => !v)}
+                  hitSlop={10}
+                  style={{ position: "absolute", right: spacing.md, height: "100%", justifyContent: "center" }}
+                >
+                  <Ionicons name={revealPassword ? "eye-off-outline" : "eye-outline"} size={20} color={colors.muted} />
+                </Pressable>
+              </View>
+            </View>
+            <View style={{ gap: spacing.sm }}>
+              <Txt variant="label">{t.forgotPassword.confirmPasswordLabel}</Txt>
+              <View style={{ justifyContent: "center" }}>
+                <TextInput
+                  testID="reset-password-confirm-password-input"
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  placeholder={t.forgotPassword.confirmPasswordPlaceholder}
+                  placeholderTextColor={colors.muted}
+                  secureTextEntry={!revealPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  spellCheck={false}
+                  textContentType="newPassword"
+                  style={[styles.input, { paddingRight: spacing.xl + spacing.lg }]}
+                  onSubmitEditing={resetPassword}
+                />
+                <Pressable
+                  testID="reset-password-confirm-password-toggle-visibility"
+                  onPress={() => setRevealPassword((v) => !v)}
+                  hitSlop={10}
+                  style={{ position: "absolute", right: spacing.md, height: "100%", justifyContent: "center" }}
+                >
+                  <Ionicons name={revealPassword ? "eye-off-outline" : "eye-outline"} size={20} color={colors.muted} />
+                </Pressable>
+              </View>
             </View>
             {error ? <ErrorBox testID="reset-password-error" message={error} /> : null}
             <Button testID="reset-password-submit" title={t.forgotPassword.submit} onPress={resetPassword} loading={loading} />

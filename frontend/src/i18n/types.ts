@@ -66,6 +66,9 @@ export type Strings = {
     emailPlaceholderLogin: string;
     passwordLabel: string;
     passwordPlaceholder: string;
+    confirmPasswordLabel: string;
+    confirmPasswordPlaceholder: string;
+    passwordMismatch: string;
     forgotPassword: string;
     loginButton: string;
     registerButton: string;
@@ -92,6 +95,9 @@ export type Strings = {
     codeLabel: string;
     newPasswordLabel: string;
     newPasswordPlaceholder: string;
+    confirmPasswordLabel: string;
+    confirmPasswordPlaceholder: string;
+    passwordMismatch: string;
     submit: string;
     resend: string;
     invalidEmail: string;

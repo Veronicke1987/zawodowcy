@@ -25,6 +25,7 @@ export default function AuthScreen() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [country, setCountry] = useState<string | undefined>(countryParam);
@@ -39,6 +40,7 @@ export default function AuthScreen() {
     if (mode === "register" && !email.includes("@")) return setError(t.auth.invalidEmail);
     if (mode === "login" && !email.trim()) return setError(t.auth.invalidLoginId);
     if (password.length < 6) return setError(t.auth.shortPassword);
+    if (mode === "register" && password !== confirmPassword) return setError(t.auth.passwordMismatch);
     setLoading(true);
     try {
       if (mode === "login") await login(email.trim(), password);
@@ -117,8 +119,23 @@ export default function AuthScreen() {
             autoCorrect={false}
             spellCheck={false}
             textContentType={mode === "login" ? "password" : "newPassword"}
-            onSubmitEditing={submit}
+            onSubmitEditing={mode === "register" ? undefined : submit}
           />
+          {mode === "register" ? (
+            <Field
+              label={t.auth.confirmPasswordLabel}
+              testID="auth-confirm-password-input"
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              placeholder={t.auth.confirmPasswordPlaceholder}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              spellCheck={false}
+              textContentType="newPassword"
+              onSubmitEditing={submit}
+            />
+          ) : null}
           {mode === "login" ? (
             <Pressable
               testID="auth-forgot-password-link"
@@ -143,13 +160,33 @@ export default function AuthScreen() {
   );
 }
 
-function Field({ label, ...props }: React.ComponentProps<typeof TextInput> & { label: string }) {
+function Field({ label, secureTextEntry, testID, ...props }: React.ComponentProps<typeof TextInput> & { label: string }) {
   const styles = useStyles();
   const { colors } = useTheme();
+  const [reveal, setReveal] = useState(false);
+  const canReveal = !!secureTextEntry;
   return (
     <View style={{ gap: spacing.xs }}>
       <Txt variant="label">{label}</Txt>
-      <TextInput {...props} placeholderTextColor={colors.muted} style={styles.input} />
+      <View style={{ justifyContent: "center" }}>
+        <TextInput
+          {...props}
+          testID={testID}
+          secureTextEntry={canReveal && !reveal}
+          placeholderTextColor={colors.muted}
+          style={[styles.input, canReveal && { paddingRight: spacing.xl + spacing.lg }]}
+        />
+        {canReveal ? (
+          <Pressable
+            testID={`${testID}-toggle-visibility`}
+            onPress={() => setReveal((v) => !v)}
+            hitSlop={10}
+            style={{ position: "absolute", right: spacing.md, height: "100%", justifyContent: "center" }}
+          >
+            <Ionicons name={reveal ? "eye-off-outline" : "eye-outline"} size={20} color={colors.muted} />
+          </Pressable>
+        ) : null}
+      </View>
     </View>
   );
 }
