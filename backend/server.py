@@ -891,6 +891,14 @@ class PremiumIn(BaseModel):
     plan: str
 
 
+class CancelPremiumIn(BaseModel):
+    reason: Optional[str] = None
+    detail: Optional[str] = None
+
+
+CANCELLATION_REASONS = {"too_expensive", "no_longer_needed", "not_satisfied", "got_job", "other"}
+
+
 def is_premium(u: UserDoc) -> bool:
     return bool(u.premium and u.premium.get("active"))
 
@@ -928,7 +936,23 @@ async def premium_subscribe(data: PremiumIn, user: UserDoc = Depends(current_use
 
 
 @api.post("/premium/cancel")
-async def premium_cancel(user: UserDoc = Depends(current_user)):
+async def premium_cancel(data: CancelPremiumIn, user: UserDoc = Depends(current_user)):
+    # Reason is optional: the user may cancel without picking one. A recognized
+    # category is stored as-is, free text ("other") falls back to "other", and
+    # skipping the step entirely is tracked separately as "not_specified".
+    raw_reason = (data.reason or "").strip()
+    if raw_reason in CANCELLATION_REASONS:
+        reason = raw_reason
+    elif raw_reason:
+        reason = "other"
+    else:
+        reason = "not_specified"
+    detail = (data.detail or "").strip()[:500]
+    plan = (user.premium or {}).get("plan")
+    await db.premium_cancellations.insert_one({
+        "user_id": user.id, "email": user.email, "plan": plan,
+        "reason": reason, "detail": detail, "canceled_at": now_iso(),
+    })
     await db.users.update_one({"_id": ObjectId(user.id)}, {"$set": {"premium": None}})
     return {"ok": True}
 
@@ -1601,7 +1625,17 @@ async def admin_stats(_: UserDoc = Depends(admin_user)):
             "premium": await db.users.count_documents({"premium.active": True}),
             "gifted": await db.users.count_documents({"premium.plan": "gift"}),
             "pending_grants": await db.premium_grants.count_documents({}),
-            "paths": await db.roadmaps.count_documents({})}
+            "paths": await db.roadmaps.count_documents({}),
+            "cancellations": await db.premium_cancellations.count_documents({})}
+
+
+@api.get("/admin/cancellations")
+async def admin_cancellations(_: UserDoc = Depends(admin_user)):
+    docs = await db.premium_cancellations.find({}, {"_id": 0}).sort("canceled_at", -1).to_list(200)
+    by_reason: dict[str, int] = {}
+    for d in docs:
+        by_reason[d["reason"]] = by_reason.get(d["reason"], 0) + 1
+    return {"total": len(docs), "by_reason": by_reason, "recent": docs[:50]}
 
 
 @api.get("/admin/users")

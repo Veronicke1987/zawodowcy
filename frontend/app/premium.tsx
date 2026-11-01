@@ -1,7 +1,7 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Modal, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -27,11 +27,25 @@ export default function Premium() {
   const styles = useStyles();
   const { colors } = useTheme();
   const router = useRouter();
-  const { user, refresh } = useAuth();
+  const { user, refresh, t } = useAuth();
   const [plan, setPlan] = useState<"monthly" | "yearly">("yearly");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [confirmVisible, setConfirmVisible] = useState(false);
+  const [reasonVisible, setReasonVisible] = useState(false);
+  const [reason, setReason] = useState<string | null>(null);
+  const [reasonDetail, setReasonDetail] = useState("");
+  const [reasonError, setReasonError] = useState("");
   const active = !!user?.is_premium;
+  const limit = user?.roadmap_generations_limit ?? 25;
+
+  const REASONS: { key: string; label: string }[] = [
+    { key: "too_expensive", label: t.premium.reasonTooExpensive },
+    { key: "no_longer_needed", label: t.premium.reasonNoLongerNeeded },
+    { key: "not_satisfied", label: t.premium.reasonNotSatisfied },
+    { key: "got_job", label: t.premium.reasonGotJob },
+    { key: "other", label: t.premium.reasonOther },
+  ];
 
   const after = async () => {
     await refresh();
@@ -52,13 +66,26 @@ export default function Premium() {
     }
   };
 
-  const cancel = async () => {
+  const openReasonModal = () => {
+    setConfirmVisible(false);
+    setReason(null);
+    setReasonDetail("");
+    setReasonError("");
+    setReasonVisible(true);
+  };
+
+  const confirmCancel = async () => {
     setLoading(true);
+    setError("");
     try {
-      await api("/premium/cancel", { method: "POST" });
+      await api("/premium/cancel", {
+        method: "POST",
+        body: { reason: reason || undefined, detail: reasonDetail.trim() || undefined },
+      });
+      setReasonVisible(false);
       await after();
     } catch (e: any) {
-      setError(e.message);
+      setReasonError(e.message);
     } finally {
       setLoading(false);
     }
@@ -82,7 +109,7 @@ export default function Premium() {
               <View style={{ flex: 1 }}>
                 <Txt variant="heading">Masz aktywne Premium</Txt>
                 <Txt variant="caption" testID="premium-usage">
-                  Wykorzystano {user?.roadmap_generations_used ?? 0} z {user?.roadmap_generations_limit ?? 25} nowych ścieżek w tym miesiącu
+                  Wykorzystano {user?.roadmap_generations_used ?? 0} z {limit} nowych ścieżek w tym miesiącu
                 </Txt>
               </View>
             </View>
@@ -139,11 +166,71 @@ export default function Premium() {
 
       <View style={[styles.sticky, { paddingBottom: insets.bottom + spacing.md }]}>
         {active ? (
-          <Button testID="premium-cancel-button" title="Wyłącz Premium" variant="ghost" onPress={cancel} loading={loading} />
+          <Button testID="premium-cancel-button" title={t.premium.cancelButton} variant="ghost" onPress={() => setConfirmVisible(true)} loading={loading} />
         ) : (
-          <Button testID="premium-subscribe-button" title="Aktywuj Premium" icon="diamond" onPress={subscribe} loading={loading} />
+          <Button testID="premium-subscribe-button" title={t.premium.subscribeButton} icon="diamond" onPress={subscribe} loading={loading} />
         )}
       </View>
+
+      <Modal visible={confirmVisible} transparent animationType="fade" onRequestClose={() => setConfirmVisible(false)}>
+        <View style={styles.overlay}>
+          <View style={styles.dialog} testID="premium-cancel-confirm-dialog">
+            <Ionicons name="alert-circle-outline" size={36} color={colors.brandPrimary} />
+            <Txt variant="heading" style={{ textAlign: "center" }}>
+              {t.premium.cancelConfirmTitle}
+            </Txt>
+            <Txt style={{ textAlign: "center" }}>{t.premium.cancelConfirmText(limit)}</Txt>
+            <Button testID="premium-keep-button" title={t.premium.keepPremiumButton} onPress={() => setConfirmVisible(false)} style={{ alignSelf: "stretch" }} />
+            <Button testID="premium-continue-cancel-button" title={t.premium.continueCancelButton} variant="ghost" onPress={openReasonModal} style={{ alignSelf: "stretch" }} />
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={reasonVisible} transparent animationType="fade" onRequestClose={() => setReasonVisible(false)}>
+        <View style={styles.overlay}>
+          <View style={styles.dialog} testID="premium-cancel-reason-dialog">
+            <Txt variant="heading" style={{ textAlign: "center" }}>
+              {t.premium.reasonModalTitle}
+            </Txt>
+            <Txt variant="caption" style={{ textAlign: "center" }}>
+              {t.premium.reasonModalSubtitle}
+            </Txt>
+            <View style={{ alignSelf: "stretch", gap: spacing.sm }}>
+              {REASONS.map((r) => {
+                const sel = reason === r.key;
+                return (
+                  <Pressable
+                    key={r.key}
+                    testID={`premium-cancel-reason-${r.key}`}
+                    onPress={() => {
+                      setReason(r.key);
+                      setReasonError("");
+                    }}
+                    style={[styles.reasonRow, { borderColor: sel ? colors.brandPrimary : colors.border }]}
+                  >
+                    <Ionicons name={sel ? "radio-button-on" : "radio-button-off"} size={20} color={sel ? colors.brandPrimary : colors.borderStrong} />
+                    <Text style={styles.reasonLabel}>{r.label}</Text>
+                  </Pressable>
+                );
+              })}
+              {reason === "other" ? (
+                <TextInput
+                  testID="premium-cancel-reason-detail"
+                  value={reasonDetail}
+                  onChangeText={setReasonDetail}
+                  placeholder={t.premium.reasonOtherPlaceholder}
+                  placeholderTextColor={colors.muted}
+                  multiline
+                  style={styles.reasonInput}
+                />
+              ) : null}
+            </View>
+            {reasonError ? <ErrorBox testID="premium-cancel-reason-error" message={reasonError} /> : null}
+            <Button testID="premium-confirm-cancel-button" title={t.premium.confirmCancelButton} onPress={confirmCancel} loading={loading} style={{ alignSelf: "stretch" }} />
+            <Button testID="premium-reason-dismiss-button" title={t.common.cancel} variant="ghost" onPress={() => setReasonVisible(false)} style={{ alignSelf: "stretch" }} />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -166,4 +253,9 @@ const useStyles = makeStyles((c) => ({
   demoText: { flex: 1, fontFamily: fonts.medium, fontSize: 12, color: c.muted },
   topBar: { position: "absolute", left: spacing.lg },
   sticky: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: spacing.xl, paddingTop: spacing.md, backgroundColor: c.surface, borderTopWidth: 1, borderTopColor: c.divider },
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: spacing.xl },
+  dialog: { width: "100%", maxWidth: 380, backgroundColor: c.surface, borderRadius: radius.lg, padding: spacing.xl, gap: spacing.md, alignItems: "center" },
+  reasonRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 2 },
+  reasonLabel: { flex: 1, fontFamily: fonts.medium, fontSize: 14, color: c.onSurface },
+  reasonInput: { borderWidth: 1, borderColor: c.border, borderRadius: radius.md, padding: spacing.md, fontFamily: fonts.medium, fontSize: 14, color: c.onSurface, minHeight: 60, textAlignVertical: "top" },
 }));

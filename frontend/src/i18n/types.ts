@@ -282,6 +282,19 @@ export type Strings = {
     demoNotice: string;
     cancelButton: string;
     subscribeButton: string;
+    cancelConfirmTitle: string;
+    cancelConfirmText: (limit: number) => string;
+    keepPremiumButton: string;
+    continueCancelButton: string;
+    reasonModalTitle: string;
+    reasonModalSubtitle: string;
+    reasonTooExpensive: string;
+    reasonNoLongerNeeded: string;
+    reasonNotSatisfied: string;
+    reasonGotJob: string;
+    reasonOther: string;
+    reasonOtherPlaceholder: string;
+    confirmCancelButton: string;
   };
   customPath: {
     title: string;
