@@ -1,0 +1,30 @@
+{
+  "summary": "Full re-test (actual HTTP calls + Playwright UI automation, not just code review) of the new Gmail OAuth admin-connect feature plus regression checks. Backend: 10/10 pytest tests passed covering /api/admin/google/status, /api/admin/google/connect, /api/admin/google/disconnect (admin-only, 403 for non-admin/no-auth), the public /api/auth/google/callback (400 HTML for error=, bogus state, and no params), and the forgot-password regression (graceful 503 with the expected Polish message). Frontend: logged in as ADMIN, navigated to /admin, confirmed the 'Wysyłka e-maili (Gmail)' card renders (testID admin-gmail-card) with an enabled 'Połącz Gmail' button (testID admin-gmail-connect-button, not disabled) since configured=true/connected=false. Premium cancellation regression smoke test (subscribe -> cancel no reason -> re-subscribe -> cancel with 'Za drogo' reason) passed end-to-end via Playwright with no console errors. Google OAuth consent completion itself was correctly left out of scope (requires real human Gmail login).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_gmail_oauth_admin.py", "/app/test_reports/pytest/pytest_gmail_oauth.xml"],
+  "action_items": [
+    "No action needed. All in-scope items from the test plan passed. Google OAuth consent completion is intentionally out of scope and will be done manually by the user with the real Gmail account."
+  ],
+  "critical_code_review_comments": [
+    "google_oauth_callback is correctly public (include_in_schema=False) with a one-time state nonce stored in oauth_states (TTL index, expireAfterSeconds=600) guarding against CSRF/replay since Google can't attach a bearer token on a browser redirect - sound design.",
+    "send_email() tries Gmail first via _gmail_send(), falls back to Emergent proxy, and only raises 503 if neither works - backward compatible with pre-existing forgot-password behavior, confirmed by regression test.",
+    "google_connect() correctly validates GOOGLE_CLIENT_ID/SECRET presence before issuing state token; google_status() computes configured/connected independently and correctly reflects {configured:true, connected:false, sender:'support.zawodowcy@gmail.com', connected_at:null} in current (pre-consent) state.",
+    "Gmail OAuth URL params verified: client_id ends in .apps.googleusercontent.com, redirect_uri ends in /api/auth/google/callback, scope=gmail.send, access_type=offline, prompt=consent, state present with length>10."
+  ],
+  "updated_files": ["/app/backend/tests/test_gmail_oauth_admin.py"],
+  "success_rate": {"backend": "100% (10/10 pytest tests passed)", "frontend": "100% (admin Gmail card render + premium cancel regression both passed via Playwright)"},
+  "seed_data_creation": "Backend pytest created a few TEST_gmail_* and TEST_fp_* throwaway users (prefixed TEST_, harmless). Frontend Playwright reused ania_t1@test.pl for premium subscribe/cancel smoke test, leaving it in an unsubscribed (canceled) end state - consistent with prior iterations' usage of this account.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Gmail OAuth admin-connect feature fully verified end-to-end (backend API contract + admin UI rendering) except the actual Google consent-screen completion, which requires a real human login to support.zawodowcy@gmail.com and cannot be automated - leave that step to the user. Once the user completes the consent flow, a good follow-up test would be re-checking /api/admin/google/status returns connected:true with a non-null connected_at, and that the 'Rozłącz Gmail' button (testID admin-gmail-disconnect-button) then appears instead of 'Połącz Gmail', and that forgot-password emails actually arrive via Gmail (not just the 503 fallback).",
+  "rca_of_issue": "No bugs found. This was a verification pass of a newly implemented feature + regression checks. All assertions (status codes, response bodies, OAuth URL structure, 403 permission checks, HTML error pages, UI testIDs/button states, premium cancel flow) passed on first run with no fixes required."
+}

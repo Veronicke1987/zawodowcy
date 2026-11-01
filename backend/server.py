@@ -1,4 +1,5 @@
 from fastapi import FastAPI, APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -6,12 +7,14 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, BeforeValidator, ConfigDict
 from typing import Annotated, Any, Optional, List
 from datetime import datetime, timezone, timedelta, date
-from urllib.parse import quote, quote_plus, urlparse
+from urllib.parse import quote, quote_plus, urlparse, urlencode
 from pathlib import Path
 from bson import ObjectId
+from email.mime.text import MIMEText
 from html import escape
 from html.parser import HTMLParser
 import asyncio
+import base64
 import bcrypt
 import httpx
 import ipaddress
@@ -48,6 +51,22 @@ EMAIL_BASE_URL = "https://integrations.emergentagent.com"
 EMAIL_KEY = os.environ.get("EMERGENT_EMAIL_KEY")
 EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "Zawodowcy")
 EMAIL_REPLY_TO = os.environ.get("EMAIL_REPLY_TO")
+
+# Gmail API (OAuth) — lets the owner send transactional emails (password-reset codes)
+# straight from their own Gmail address instead of the Emergent managed proxy above.
+# Preferred when configured; falls back to the Emergent proxy if Gmail isn't connected
+# yet or a send attempt fails. Credentials come from Google Cloud Console (OAuth client);
+# the refresh token is obtained once via the admin-only connect flow below and stored in
+# MongoDB (never in .env), since it is generated at runtime, not provisioned up front.
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
+GOOGLE_GMAIL_SENDER = os.environ.get("GOOGLE_GMAIL_SENDER", "support.zawodowcy@gmail.com")
+BACKEND_PUBLIC_URL = os.environ.get("BACKEND_PUBLIC_URL", "").rstrip("/")
+GOOGLE_REDIRECT_URI = f"{BACKEND_PUBLIC_URL}/api/auth/google/callback"
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("reset")
@@ -520,13 +539,60 @@ def _assert_safe_email(subject: str, html: str) -> None:
                 raise ValueError(f"Anchor text {m.group(1)!r} != real link host {real!r} (G3)")
 
 
+async def _gmail_refresh_access_token() -> Optional[str]:
+    """Exchanges the stored refresh token for a short-lived Gmail API access token.
+    Returns None if Gmail was never connected (no refresh token saved yet)."""
+    if not (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET):
+        return None
+    doc = await db.integration_tokens.find_one({"provider": "gmail_send"})
+    if not doc or not doc.get("refresh_token"):
+        return None
+    async with httpx.AsyncClient(timeout=20) as client_http:
+        resp = await client_http.post(GOOGLE_TOKEN_URL, data={
+            "client_id": GOOGLE_CLIENT_ID, "client_secret": GOOGLE_CLIENT_SECRET,
+            "refresh_token": doc["refresh_token"], "grant_type": "refresh_token",
+        })
+    if resp.status_code != 200:
+        logger.warning(f"Gmail token refresh failed: {resp.status_code} {resp.text}")
+        return None
+    return resp.json().get("access_token")
+
+
+async def _gmail_send(*, to: str, subject: str, html: str, reply_to: str | None = None) -> Optional[str]:
+    """Sends via Gmail API using the owner's connected account. Returns the Gmail
+    message id on success, or None if Gmail isn't connected / the send failed — callers
+    fall back to the Emergent managed proxy in that case."""
+    access_token = await _gmail_refresh_access_token()
+    if not access_token:
+        return None
+    msg = MIMEText(html, "html", "utf-8")
+    msg["To"] = to
+    msg["From"] = f"{EMAIL_FROM_NAME} <{GOOGLE_GMAIL_SENDER}>"
+    msg["Subject"] = subject
+    if reply_to or EMAIL_REPLY_TO:
+        msg["Reply-To"] = reply_to or EMAIL_REPLY_TO
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
+    try:
+        async with httpx.AsyncClient(timeout=30) as client_http:
+            resp = await client_http.post(GMAIL_SEND_URL, headers={"Authorization": f"Bearer {access_token}"}, json={"raw": raw})
+        resp.raise_for_status()
+        return resp.json().get("id")
+    except Exception as e:
+        logger.warning(f"Gmail send failed, falling back: {e}")
+        return None
+
+
 async def send_email(*, to: str, subject: str, html: str, reply_to: str | None = None) -> str | None:
     """Internal helper — html always comes from our own server-side templates below,
-    never from request input (G4)."""
-    if not EMAIL_KEY:
-        logger.warning("EMERGENT_EMAIL_KEY not configured yet — email not sent")
-        raise HTTPException(status_code=503, detail="Wysyłka e-maili jest chwilowo niedostępna. Spróbuj ponownie za chwilę.")
+    never from request input (G4). Tries the owner's connected Gmail account first
+    (if any), then falls back to the Emergent managed email proxy."""
     _assert_safe_email(subject, html)
+    gmail_id = await _gmail_send(to=to, subject=subject, html=html, reply_to=reply_to)
+    if gmail_id:
+        return gmail_id
+    if not EMAIL_KEY:
+        logger.warning("Neither Gmail nor EMERGENT_EMAIL_KEY configured — email not sent")
+        raise HTTPException(status_code=503, detail="Wysyłka e-maili jest chwilowo niedostępna. Spróbuj ponownie za chwilę.")
     payload = {"to": [to], "subject": subject, "html": html, "from_name": EMAIL_FROM_NAME}
     if reply_to or EMAIL_REPLY_TO:
         payload["contact_email"] = reply_to or EMAIL_REPLY_TO
@@ -1638,6 +1704,84 @@ async def admin_cancellations(_: UserDoc = Depends(admin_user)):
     return {"total": len(docs), "by_reason": by_reason, "recent": docs[:50]}
 
 
+# ---------------------------------------------------------------- gmail connect (owner's own mailbox)
+@api.get("/admin/google/status")
+async def google_status(_: UserDoc = Depends(admin_user)):
+    configured = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
+    doc = await db.integration_tokens.find_one({"provider": "gmail_send"})
+    return {"configured": configured, "connected": bool(doc and doc.get("refresh_token")),
+            "sender": GOOGLE_GMAIL_SENDER, "connected_at": (doc or {}).get("connected_at")}
+
+
+@api.get("/admin/google/connect")
+async def google_connect(_: UserDoc = Depends(admin_user)):
+    if not (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET):
+        raise HTTPException(400, "Najpierw dodaj GOOGLE_CLIENT_ID i GOOGLE_CLIENT_SECRET.")
+    state = pysecrets.token_urlsafe(24)
+    await db.oauth_states.insert_one({"state": state, "purpose": "gmail_connect", "created_at": datetime.now(timezone.utc)})
+    params = {
+        "client_id": GOOGLE_CLIENT_ID, "redirect_uri": GOOGLE_REDIRECT_URI, "response_type": "code",
+        "scope": GMAIL_SCOPE, "access_type": "offline", "prompt": "consent",
+        "login_hint": GOOGLE_GMAIL_SENDER, "state": state,
+    }
+    return {"url": f"{GOOGLE_AUTH_URL}?{urlencode(params)}"}
+
+
+@api.post("/admin/google/disconnect")
+async def google_disconnect(_: UserDoc = Depends(admin_user)):
+    await db.integration_tokens.delete_one({"provider": "gmail_send"})
+    return {"ok": True}
+
+
+def _oauth_result_page(ok: bool, message: str) -> HTMLResponse:
+    color = "#16a34a" if ok else "#dc2626"
+    html_doc = f"""<!DOCTYPE html><html lang="pl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zawodowcy — Gmail</title></head>
+<body style="font-family:-apple-system,system-ui,sans-serif;display:flex;min-height:100vh;
+align-items:center;justify-content:center;background:#f8fafc;margin:0;padding:24px;">
+<div style="max-width:420px;text-align:center;">
+<h1 style="color:{color};font-size:22px;margin-bottom:12px;">{"Połączono pomyślnie" if ok else "Nie udało się połączyć"}</h1>
+<p style="color:#334155;font-size:15px;line-height:1.5;">{escape(message)}</p>
+<p style="color:#94a3b8;font-size:13px;margin-top:24px;">Możesz teraz zamknąć tę kartę i wrócić do aplikacji.</p>
+</div></body></html>"""
+    return HTMLResponse(content=html_doc, status_code=200 if ok else 400)
+
+
+@api.get("/auth/google/callback", include_in_schema=False)
+async def google_oauth_callback(code: str | None = None, state: str | None = None, error: str | None = None):
+    """Public redirect target — Google sends the admin's browser here after they grant
+    (or deny) access to their Gmail account. Not behind auth: Google cannot attach a
+    bearer token on a browser redirect, so a one-time `state` nonce guards against CSRF."""
+    if error:
+        return _oauth_result_page(False, f"Google zwrócił błąd: {error}. Spróbuj połączyć ponownie z panelu administratora.")
+    if not (code and state):
+        return _oauth_result_page(False, "Brak wymaganych parametrów w odpowiedzi Google.")
+    state_doc = await db.oauth_states.find_one_and_delete({"state": state, "purpose": "gmail_connect"})
+    if not state_doc or (datetime.now(timezone.utc) - state_doc["created_at"]).total_seconds() > 600:
+        return _oauth_result_page(False, "Link wygasł lub został już użyty. Wróć do panelu administratora i spróbuj ponownie.")
+    try:
+        async with httpx.AsyncClient(timeout=20) as client_http:
+            resp = await client_http.post(GOOGLE_TOKEN_URL, data={
+                "client_id": GOOGLE_CLIENT_ID, "client_secret": GOOGLE_CLIENT_SECRET, "code": code,
+                "redirect_uri": GOOGLE_REDIRECT_URI, "grant_type": "authorization_code",
+            })
+        resp.raise_for_status()
+        tokens = resp.json()
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Gmail token exchange failed: {e.response.status_code} {e.response.text}")
+        return _oauth_result_page(False, "Google odrzucił wymianę kodu na token. Sprawdź Client ID / Client Secret i spróbuj ponownie.")
+    refresh_token = tokens.get("refresh_token")
+    if not refresh_token:
+        return _oauth_result_page(False, "Google nie zwrócił refresh tokena. Cofnij dostęp aplikacji na myaccount.google.com/permissions i spróbuj połączyć ponownie.")
+    await db.integration_tokens.update_one(
+        {"provider": "gmail_send"},
+        {"$set": {"refresh_token": refresh_token, "sender": GOOGLE_GMAIL_SENDER, "connected_at": now_iso()}},
+        upsert=True,
+    )
+    return _oauth_result_page(True, f"Konto {GOOGLE_GMAIL_SENDER} zostało połączone. Kody odzyskiwania hasła będą teraz wysyłane z tego adresu.")
+
+
 @api.get("/admin/users")
 async def admin_users(q: str = "", _: UserDoc = Depends(admin_user)):
     flt = {"$or": [{"email": {"$regex": re.escape(q.strip()), "$options": "i"}},
@@ -1689,6 +1833,8 @@ async def startup():
     await db.users.create_index("username_lower", unique=True, sparse=True)
     await db.gen_usage.create_index([("user_id", 1), ("month", 1)], unique=True)
     await db.premium_grants.create_index("email", unique=True)
+    await db.oauth_states.create_index("created_at", expireAfterSeconds=600)
+    await db.integration_tokens.create_index("provider", unique=True)
     if ADMIN_EMAILS:
         await db.users.update_many({"email": {"$in": list(ADMIN_EMAILS)}}, {"$set": {"role": "admin"}})
     email = os.environ.get("ADMIN_EMAIL")

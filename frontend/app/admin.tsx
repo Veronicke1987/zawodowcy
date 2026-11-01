@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, Switch, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, FlatList, Linking, Pressable, RefreshControl, Switch, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
@@ -11,6 +11,7 @@ import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 type AdminUser = { id: string; email: string; name: string; role: string; is_premium: boolean; premium_plan?: string; created_at: string };
 type Stats = { users: number; premium: number; gifted: number; pending_grants: number; paths: number };
+type GoogleStatus = { configured: boolean; connected: boolean; sender: string; connected_at: string | null };
 
 export default function AdminPanel() {
   const insets = useSafeAreaInsets();
@@ -22,7 +23,10 @@ export default function AdminPanel() {
   const [email, setEmail] = useState("");
   const [granting, setGranting] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const [gmailMsg, setGmailMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
+  const google = useQuery({ queryKey: ["admin-google-status"], queryFn: () => api<GoogleStatus>("/admin/google/status"), enabled: user?.role === "admin" });
   const stats = useQuery({ queryKey: ["admin-stats"], queryFn: () => api<Stats>("/admin/stats"), enabled: user?.role === "admin" });
   const list = useQuery({
     queryKey: ["admin-users", search],
@@ -33,6 +37,32 @@ export default function AdminPanel() {
   const reload = () => {
     stats.refetch();
     list.refetch();
+  };
+
+  const connectGmail = async () => {
+    setConnecting(true);
+    setGmailMsg(null);
+    try {
+      const r = await api<{ url: string }>("/admin/google/connect");
+      await Linking.openURL(r.url);
+    } catch (e: any) {
+      setGmailMsg({ text: e.message, ok: false });
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const disconnectGmail = async () => {
+    setConnecting(true);
+    setGmailMsg(null);
+    try {
+      await api("/admin/google/disconnect", { method: "POST" });
+      await google.refetch();
+    } catch (e: any) {
+      setGmailMsg({ text: e.message, ok: false });
+    } finally {
+      setConnecting(false);
+    }
   };
 
   const grant = async () => {
@@ -124,6 +154,43 @@ export default function AdminPanel() {
               {msg ? (
                 <Text testID="admin-grant-message" style={[styles.msg, { color: msg.ok ? colors.success : colors.error }]}>
                   {msg.text}
+                </Text>
+              ) : null}
+            </View>
+
+            <View style={styles.card} testID="admin-gmail-card">
+              <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+                <Ionicons name="mail-outline" size={20} color={colors.onSurface} />
+                <Txt variant="heading">Wysyłka e-maili (Gmail)</Txt>
+              </View>
+              {google.data?.connected ? (
+                <>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.xs }}>
+                    <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                    <Txt variant="caption">Połączono: {google.data.sender}</Txt>
+                  </View>
+                  <Button testID="admin-gmail-disconnect-button" title="Rozłącz Gmail" variant="ghost" onPress={disconnectGmail} loading={connecting} />
+                </>
+              ) : (
+                <>
+                  <Txt variant="caption">
+                    {google.data?.configured
+                      ? "Połącz konto Gmail, aby kody odzyskiwania hasła były wysyłane z Twojego adresu zamiast adresu technicznego."
+                      : "Najpierw dodaj GOOGLE_CLIENT_ID i GOOGLE_CLIENT_SECRET (Sekrety), żeby móc połączyć Gmaila."}
+                  </Txt>
+                  <Button
+                    testID="admin-gmail-connect-button"
+                    title="Połącz Gmail"
+                    icon="mail-outline"
+                    onPress={connectGmail}
+                    loading={connecting}
+                    disabled={!google.data?.configured}
+                  />
+                </>
+              )}
+              {gmailMsg ? (
+                <Text testID="admin-gmail-message" style={[styles.msg, { color: gmailMsg.ok ? colors.success : colors.error }]}>
+                  {gmailMsg.text}
                 </Text>
               ) : null}
             </View>
