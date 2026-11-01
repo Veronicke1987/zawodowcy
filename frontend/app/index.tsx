@@ -32,6 +32,8 @@ export default function Index() {
     );
   }
   if (!user) return <Redirect href={hasLocalCountry ? "/auth" : "/country-select"} />;
-  if (!user.has_profile) return <Redirect href="/quiz" />;
+  // Admins manage the app, they don't need a career-change profile — skip the onboarding
+  // quiz entirely so a fresh admin account always lands straight in the app/admin panel.
+  if (!user.has_profile && user.role !== "admin") return <Redirect href="/quiz" />;
   return <Redirect href="/(tabs)" />;
 }
