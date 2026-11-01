@@ -355,7 +355,7 @@ function DailyItemSheet({ item, onClose }: { item: DailyItem | null; onClose: ()
               </Txt>
             </View>
           </View>
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.lg }} showsVerticalScrollIndicator={false}>
+          <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.lg }} showsVerticalScrollIndicator={false}>
             {q.isLoading ? (
               <ActivityIndicator style={styles.loading} color={colors.brandPrimary} />
             ) : q.isError ? (

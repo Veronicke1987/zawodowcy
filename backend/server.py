@@ -238,9 +238,10 @@ SYSTEM_PL = (
     "Jesteś doświadczonym polskim doradcą zawodowym i analitykiem rynku pracy. "
     "Znasz aktualne oferty pracy publikowane w Polsce na Pracuj.pl, OLX Praca, LinkedIn, Indeed i w urzędach pracy, "
     "w tym typowe wymagania pracodawców. Odpowiadasz WYŁĄCZNIE poprawnym JSON-em, bez komentarzy i bez markdown. "
-    "Wszystkie teksty po polsku, pełnymi, konkretnymi zdaniami — bez lania wody i bez zbędnych powtórzeń, ale "
-    "wystarczająco rozbudowane, by były naprawdę pomocne. Trzymaj się podanych limitów długości/liczby słów dla każdego pola — "
-    "to maksimum, nie cel do skrócenia na siłę."
+    "Wszystkie teksty po polsku, pełnymi, bogatymi w konkrety zdaniami — jak doświadczony doradca piszący prawdziwie pomocną, "
+    "osobistą poradę, a nie suchym streszczeniem. NIE skracaj na siłę i NIE licz się ze słowami — jeśli pole ma podaną liczbę "
+    "zdań, zawsze wykorzystaj ją w pełni (np. »5-6 zdań« oznacza naprawdę 5-6 pełnych, rozbudowanych zdań, nie 2). Unikaj tylko "
+    "czystego lania wody i powtórzeń tej samej myśli innymi słowami."
 )
 
 
@@ -603,9 +604,12 @@ Weź pod uwagę to, czego użytkownik nie lubi, jego charakter i odporność zaw
 {MODE_RULES.get(answers.get("reset_mode") or "search", MODE_RULES["search"])}
 
 Zwróć JSON:
-{{"summary": "2-3 zdania (max 35 słów) podsumowania profilu, mocnych stron i kierunku, w jakim warto szukać",
- "now": [{{"title": "nazwa stanowiska jak w ogłoszeniach", "industry": "branża", "summary": "czym się zajmuje na co dzień, max 20 słów",
-          "why": "dlaczego akurat ten zawód pasuje do tej osoby, max 20 słów",
+{{"summary": "5-7 PEŁNYCH, bogatych w szczegóły zdań — obszerny opis profilu użytkownika: jego mocnych stron, charakteru, dotychczasowego
+doświadczenia, tego czego szuka i w jakim kierunku warto mu szukać nowej pracy oraz dlaczego. Nie licz się ze słowami — pisz tak szczegółowo
+i interesująco, jak to możliwe, jakbyś był doradcą zawodowym piszącym osobistą notatkę o tej osobie, a nie suchym streszczeniem.",
+ "now": [{{"title": "nazwa stanowiska jak w ogłoszeniach", "industry": "branża", "summary": "3-4 pełne zdania — czym dokładnie zajmuje się
+          osoba na tym stanowisku na co dzień, w jakich firmach, z jakimi narzędziami/ludźmi pracuje",
+          "why": "3-4 pełne zdania — dlaczego akurat ten zawód realnie pasuje do TEJ osoby, odwołując się konkretnie do jej odpowiedzi z ankiety",
           "match": 0-100, "salary": "np. 6 000 – 8 500 zł brutto", "demand": "wysoki|średni|niski", "ai_risk": "niskie|średnie|wysokie",
           "missing_skills": ["czego jeszcze brakuje, krótkie frazy"]}}],
  "future": [ ...ten sam format... ]}}"""
@@ -684,11 +688,12 @@ Kadrowego", "szkolenie finansowane z KFS w urzędzie pracy"), a nie ogólniki ty
 podaj nazwę kierunku (ew. 1-2 pokrewne kierunki) i wymień 2-3 PRZYKŁADOWE, różne uczelnie w Polsce, które go oferują, jako opcje do wyboru
 (np. "kierunek Logistyka — dostępny m.in. na Uniwersytecie Ekonomicznym w Krakowie, Politechnice Warszawskiej lub w WSB") — NIGDY nie wskazuj
 jednej konkretnej uczelni jako jedynej słusznej drogi. Zwróć JSON:
-{{"description": "3-4 zdania (max 60 słów) pełnego opisu zawodu — czym się zajmuje, w jakich firmach/branżach pracuje, jak wygląda typowy dzień",
- "daily_tasks": ["5-7 typowych codziennych zadań, pełne frazy, max 12 słów każde"],
- "pros": ["4-6 plusów, pełne frazy, max 12 słów każdy"], "cons": ["3-5 minusów, pełne frazy, max 12 słów każdy"],
+{{"description": "5-6 PEŁNYCH zdań — bogaty, obszerny opis zawodu: czym się dokładnie zajmuje, w jakich firmach/branżach pracuje, jak wygląda
+typowy dzień pracy, z kim współpracuje, jakie narzędzia/systemy używa. Nie licz się ze słowami, pisz ciekawie i szczegółowo.",
+ "daily_tasks": ["6-8 typowych codziennych zadań, pełne, konkretne zdania, nie pojedyncze słowa"],
+ "pros": ["5-7 plusów, pełne zdania z wyjaśnieniem dlaczego to plus"], "cons": ["4-6 minusów, pełne zdania z wyjaśnieniem dlaczego to minus"],
  "requirements": ["6-9 typowych wymagań z ogłoszeń, krótkie frazy, np. wykształcenie, znajomość programów, prawo jazdy kat. B, języki"],
- "how_to_start": ["5-7 konkretnych, nazwanych z imienia kroków (kursy/platformy/programy urzędu pracy z nazwy, a dla studiów: kierunek + kilka przykładowych uczelni), max 22 słowa każdy"],
+ "how_to_start": ["6-8 konkretnych, nazwanych z imienia kroków, każdy opisany PEŁNYM zdaniem z kontekstem (kursy/platformy/programy urzędu pracy z nazwy, a dla studiów: kierunek + kilka przykładowych uczelni) — nie licz się ze słowami"],
  "career_levels": ["4-5 kolejnych, REALNYCH, oficjalnie istniejących w Polsce stanowisk/stopni awansu w TYM KONKRETNYM zawodzie, od wejściowego do najwyższego — np. dla nauczyciela: nauczyciel stażysta, kontraktowy, mianowany, dyplomowany, wicedyrektor, dyrektor szkoły; dla programisty: junior, mid, senior, lead, CTO. NIE wymyślaj nazw stanowisk, których nie ma w tym zawodzie — jeśli nie masz pewności, użyj najbardziej powszechnie znanej, rzeczywistej struktury awansu."]}}"""
     try:
         detail = await ask_llm(FAST_MODEL, SYSTEM_PL, prompt)
@@ -788,9 +793,9 @@ Do każdego stanowiska podaj 3-5 MAŁYCH punktów (zadań), które użytkownik m
 opartych na wymaganiach z prawdziwych ofert pracy (np. studia z danej dziedziny, kurs Excela, znajomość programu Symfonia/SAP/Comarch,
 prawo jazdy kat. B, certyfikat, język angielski B2, 2 lata doświadczenia). Uwzględnij to, co użytkownik już ma — takie zadania oznacz "already_has": true.
 Zwróć JSON:
-{{"milestones": [{{"title": "stanowisko", "description": "1-2 pełne zdania (max 30 słów) czym się zajmuje na tym stanowisku", "salary": "widełki brutto", "years": "np. 0-2 lata",
-   "requirements": ["wymagania z ofert, pełne frazy, max 12 słów każda"],
-   "tasks": [{{"title": "krótka nazwa zadania", "description": "max 18 słów, co dokładnie zrobić i jak to zdobyć",
+{{"milestones": [{{"title": "stanowisko", "description": "3-4 PEŁNE zdania, obszernie — czym się zajmuje na tym stanowisku, z czego się składa praca, jak wygląda awans dalej", "salary": "widełki brutto", "years": "np. 0-2 lata",
+   "requirements": ["wymagania z ofert, pełne frazy, nie pojedyncze słowa"],
+   "tasks": [{{"title": "krótka nazwa zadania", "description": "2 pełne zdania — co dokładnie trzeba zrobić i jak to zdobyć, bez liczenia się ze słowami",
               "type": "studies|course|skill|certificate|language|license|experience|other", "already_has": false}}]}}]}}"""
     try:
         data = await ask_llm(ANALYSIS_MODEL, SYSTEM_PL, prompt)
@@ -967,13 +972,14 @@ a nie ogólniki typu "znajdź kurs" czy "skorzystaj ze szkolenia". Jeśli dotycz
 szkoleniowy, KFS, staż, dofinansowanie studiów podyplomowych, bon na zasiedlenie) i co trzeba tam zrobić (jaki wniosek, do kogo). Dla STUDIÓW
 (patrz wyżej) podawaj kierunek + kilka przykładowych uczelni, nigdy jedną wskazaną z imienia jako jedyną.
 Zwróć JSON:
-{{"overview": "3-4 zdania (max 60 słów) czym jest ten punkt, dlaczego jest ważny i co konkretnie zyskujesz go zdobywając",
- "steps": ["5-7 konkretnych, nazwanych z imienia kroków jak to zdobyć (z nazwami kursów/platform/programów, a dla studiów: kierunek + kilka przykładowych uczelni), max 24 słowa każdy"],
- "free_tips": ["3-5 konkretnych, nazwanych z imienia sposobów zrobienia tego za darmo lub taniej, max 22 słowa każdy"],
+{{"overview": "5-6 PEŁNYCH zdań — obszerne, ciekawe wyjaśnienie czym jest ten punkt, dlaczego jest ważny na tej ścieżce kariery i co
+konkretnie zyskujesz go zdobywając. Nie licz się ze słowami, pisz tak szczegółowo jak potrzeba.",
+ "steps": ["5-7 konkretnych, nazwanych z imienia kroków jak to zdobyć, każdy opisany PEŁNYM, rozbudowanym zdaniem z kontekstem (z nazwami kursów/platform/programów, a dla studiów: kierunek + kilka przykładowych uczelni) — nie licz się ze słowami"],
+ "free_tips": ["3-5 konkretnych, nazwanych z imienia sposobów zrobienia tego za darmo lub taniej, pełne zdania z wyjaśnieniem"],
  "specializations": ["tylko dla studiów/kursów: możliwe specjalizacje, inaczej pusta lista"],
  "time_estimate": "ile to zwykle trwa",
  "resources": [{{"type": "youtube|course|studies|urzad_pracy|webinar|certificate|article", "platform": "np. YouTube, Coursera, Udemy, LinkedIn Learning, Google (dla studiów: nazwa uczelni jako JEDEN z kilku przykładów)",
-                "title": "konkretna, realna nazwa kursu/kanału/szkolenia, a dla studiów: nazwa kierunku (nie pojedyncza narzucona uczelnia)", "description": "max 18 słów, co dokładnie zawiera",
+                "title": "konkretna, realna nazwa kursu/kanału/szkolenia, a dla studiów: nazwa kierunku (nie pojedyncza narzucona uczelnia)", "description": "1 pełne zdanie, co dokładnie zawiera i dlaczego warto",
                 "query": "fraza wyszukiwania po polsku"}}]}}
 Podaj 5-8 zasobów, w tym przynajmniej jeden YouTube i jeden urzad_pracy."""
     try:
@@ -1009,10 +1015,10 @@ Uwzględnij darmowe materiały, kursy z urzędu pracy, ćwiczenia praktyczne i b
 nazw firm/akademii/programów, których istnienia nie jesteś pewien — używaj ogólnych, realnych kategorii (platformy typu YouTube/Udemy/Coursera,
 szkolenia finansowane z KFS/bonu szkoleniowego w urzędzie pracy).
 Zwróć JSON:
-{{"hours_per_week": liczba, "summary": "1-2 zdania (max 30 słów) podsumowania planu i podejścia",
- "weeks": [{{"week": 1, "focus": "temat tygodnia", "goal": "co umiesz po tygodniu, pełne zdanie",
-            "items": [{{"title": "zadanie", "description": "max 18 słów jak dokładnie to zrobić", "hours": liczba}}]}}],
- "tips": ["3-4 rady motywacyjne/organizacyjne, pełne zdania, max 18 słów każda"]}}"""
+{{"hours_per_week": liczba, "summary": "2-3 pełne zdania — obszerne podsumowanie planu i podejścia, nie licz się ze słowami",
+ "weeks": [{{"week": 1, "focus": "temat tygodnia", "goal": "co umiesz po tygodniu, 1-2 pełne zdania",
+            "items": [{{"title": "zadanie", "description": "2 pełne zdania — jak dokładnie to zrobić, z konkretami", "hours": liczba}}]}}],
+ "tips": ["3-4 rady motywacyjne/organizacyjne, pełne, rozbudowane zdania"]}}"""
     try:
         plan = await ask_llm(ANALYSIS_MODEL, SYSTEM_PL, prompt)
         await db.roadmaps.update_one({"user_id": user_id, "path_id": path_id, "study_plan.job_id": job_id},
@@ -1265,10 +1271,11 @@ WAŻNE — bądź KONKRETNY, nie ogólnikowy: w "steps" i "free_tips" podawaj NA
 (bon szkoleniowy, KFS, staż) — nie pisz ogólnie "znajdź kurs" czy "skorzystaj ze szkolenia". Jeśli dotyczy studiów, nigdy nie wskazuj jednej
 konkretnej uczelni jako jedynej słusznej — podaj kierunek i kilka przykładowych uczelni, które go oferują.
 Zwróć JSON:
-{{"overview": "2-3 zdania (max 45 słów) czym jest ta czynność i dlaczego pomaga", "steps": ["4-6 konkretnych, nazwanych z imienia kroków, max 22 słowa każdy"],
- "free_tips": ["2-4 konkretne, nazwane z imienia sposoby zrobienia tego za darmo, max 20 słów każdy"], "specializations": [], "time_estimate": "ile to zwykle trwa",
+{{"overview": "3-4 PEŁNE zdania — obszernie, czym jest ta czynność i dlaczego pomaga w drodze do celu. Nie licz się ze słowami.",
+ "steps": ["4-6 konkretnych, nazwanych z imienia kroków, każdy pełnym, rozbudowanym zdaniem z kontekstem"],
+ "free_tips": ["2-4 konkretne, nazwane z imienia sposoby zrobienia tego za darmo, pełne zdania"], "specializations": [], "time_estimate": "ile to zwykle trwa",
  "resources": [{{"type": "youtube|course|studies|urzad_pracy|webinar|certificate|article", "platform": "np. YouTube, Coursera, Google",
-                "title": "konkretna, realna nazwa kursu/kanału/szkolenia (nie ogólnik)", "description": "max 18 słów, co dokładnie zawiera",
+                "title": "konkretna, realna nazwa kursu/kanału/szkolenia (nie ogólnik)", "description": "1 pełne zdanie, co dokładnie zawiera",
                 "query": "fraza wyszukiwania po polsku"}}]}}
 Podaj 4-6 zasob\u00f3w, w tym przynajmniej jeden YouTube."""
     try:
