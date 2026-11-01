@@ -113,6 +113,10 @@ export default function AuthScreen() {
             onChangeText={setPassword}
             placeholder={t.auth.passwordPlaceholder}
             secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+            spellCheck={false}
+            textContentType={mode === "login" ? "password" : "newPassword"}
             onSubmitEditing={submit}
           />
           {mode === "login" ? (

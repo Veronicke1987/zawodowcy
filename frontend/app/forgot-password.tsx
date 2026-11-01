@@ -124,6 +124,10 @@ export default function ForgotPassword() {
                 placeholder={t.forgotPassword.newPasswordPlaceholder}
                 placeholderTextColor={colors.muted}
                 secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                spellCheck={false}
+                textContentType="newPassword"
                 style={styles.input}
                 onSubmitEditing={resetPassword}
               />
