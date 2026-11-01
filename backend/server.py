@@ -221,7 +221,21 @@ async def public_user(u: UserDoc) -> dict:
 
 # ---------------------------------------------------------------- LLM helpers
 async def ask_llm(model: tuple, system: str, prompt: str) -> dict:
-    chat = LlmChat(api_key=LLM_KEY, session_id=str(uuid.uuid4()), system_message=system).with_model(*model).with_params(max_tokens=16000)
+    # claude-haiku-5-5 (and other "extended thinking" capable Anthropic models) generate internal
+    # reasoning tokens by default that are billed as output but never surfaced via TextDelta — this
+    # was silently inflating output tokens ~5x (confirmed: 10 472 -> 2 049 output tokens for an
+    # identical recommendations call once thinking is disabled). We only ever need the final JSON,
+    # never the reasoning trace, so disable it outright for Anthropic and cap max_tokens sanely
+    # (real payloads measure well under 2k tokens; 4k leaves headroom without paying for runaway output).
+    params = {"max_tokens": 4096}
+    messages = None
+    if model[0] == "anthropic":
+        params["thinking"] = {"type": "disabled"}
+        # SYSTEM_PL is byte-for-byte identical on every single call in the whole app — mark it as an
+        # Anthropic prompt-cache breakpoint so repeated calls within the cache window are billed at
+        # ~10% of the normal input-token price instead of full price every time.
+        messages = [{"role": "system", "content": system, "cache_control": {"type": "ephemeral"}}]
+    chat = LlmChat(api_key=LLM_KEY, session_id=str(uuid.uuid4()), system_message=system, initial_messages=messages).with_model(*model).with_params(**params)
     text = ""
     async for ev in chat.stream_message(UserMessage(text=prompt)):
         if isinstance(ev, TextDelta):
@@ -591,6 +605,10 @@ MODE_RULES = {
 
 
 async def run_recommendations(user_id: str, answers: dict, job_id: str):
+    # Compact JSON keys below (t/i/s/w/m/sa/d/r/g) exist purely to cut OUTPUT tokens: this call
+    # repeats the same 9 fields across 10 career objects, so every character saved on field NAMES
+    # (not content) is pure waste avoided x10. Mapped back to the real field names the app/DB use
+    # right after parsing — no frontend or schema change needed.
     prompt = f"""Profil użytkownika (odpowiedzi z ankiety):
 {profile_text(answers)}
 
@@ -603,21 +621,26 @@ Weź pod uwagę to, czego użytkownik nie lubi, jego charakter i odporność zaw
 
 {MODE_RULES.get(answers.get("reset_mode") or "search", MODE_RULES["search"])}
 
-Zwróć JSON:
-{{"summary": "3-4 pełne zdania (ok. 60-80 słów) — zwięzły, ale konkretny opis profilu użytkownika: mocne strony, charakter, doświadczenie i kierunek, w jakim warto szukać pracy",
- "now": [{{"title": "nazwa stanowiska jak w ogłoszeniach", "industry": "branża", "summary": "2 pełne zdania (ok. 25-35 słów) — czym dokładnie zajmuje się osoba na tym stanowisku na co dzień",
-          "why": "2 pełne zdania (ok. 25-35 słów) — dlaczego akurat ten zawód realnie pasuje do TEJ osoby, odwołując się do jej odpowiedzi z ankiety",
-          "match": 0-100, "salary": "np. 6 000 – 8 500 zł brutto", "demand": "wysoki|średni|niski", "ai_risk": "niskie|średnie|wysokie",
-          "missing_skills": ["czego jeszcze brakuje, krótkie frazy"]}}],
+Aby oszczędzić tokeny, użyj KRÓTKICH kluczy JSON dokładnie jak w przykładzie (bez pełnych nazw pól). Zwróć JSON:
+{{"summary": "2 pełne zdania (ok. 35-45 słów) — zwięzły, konkretny opis profilu użytkownika: mocne strony i kierunek, w jakim warto szukać pracy",
+ "now": [{{"t": "nazwa stanowiska jak w ogłoszeniach", "i": "branża", "s": "1 pełne zdanie (ok. 15-20 słów) — czym dokładnie zajmuje się osoba na tym stanowisku na co dzień",
+          "w": "1 pełne zdanie (ok. 15-20 słów) — dlaczego akurat ten zawód realnie pasuje do TEJ osoby",
+          "m": 0-100, "sa": "np. 6 000 – 8 500 zł brutto", "d": "wysoki|średni|niski", "r": "niskie|średnie|wysokie",
+          "g": ["czego jeszcze brakuje, max 2 krótkie frazy"]}}],
  "future": [ ...ten sam format... ]}}"""
     try:
         data = await ask_llm(ANALYSIS_MODEL, SYSTEM_PL, prompt)
+        key_map = {"t": "title", "i": "industry", "s": "summary", "w": "why", "m": "match",
+                   "sa": "salary", "d": "demand", "r": "ai_risk", "g": "missing_skills"}
         for cat in ("now", "future"):
             items = data.get(cat) or []
+            expanded = []
             for it in items:
-                it["id"] = uuid.uuid4().hex[:12]
-                it["category"] = cat
-            data[cat] = items
+                full = {key_map.get(k, k): v for k, v in it.items()}
+                full["id"] = uuid.uuid4().hex[:12]
+                full["category"] = cat
+                expanded.append(full)
+            data[cat] = expanded
         await db.recommendations.update_one(
             {"user_id": user_id, "job_id": job_id},
             {"$set": {"status": "ready", "mode": answers.get("reset_mode") or "search", "summary": data.get("summary", ""), "now": data["now"],
@@ -685,7 +708,7 @@ Kadrowego", "szkolenie finansowane z KFS w urzędzie pracy"), a nie ogólniki ty
 podaj nazwę kierunku (ew. 1-2 pokrewne kierunki) i wymień 2-3 PRZYKŁADOWE, różne uczelnie w Polsce, które go oferują, jako opcje do wyboru
 (np. "kierunek Logistyka — dostępny m.in. na Uniwersytecie Ekonomicznym w Krakowie, Politechnice Warszawskiej lub w WSB") — NIGDY nie wskazuj
 jednej konkretnej uczelni jako jedynej słusznej drogi. Zwróć JSON:
-{{"description": "3 pełne zdania (ok. 50-65 słów) — konkretny opis zawodu: czym się zajmuje, w jakich firmach/branżach pracuje, jak wygląda typowy dzień pracy",
+{{"description": "2 pełne zdania (ok. 30-40 słów) — zwięzły opis zawodu: czym się zajmuje i jak wygląda typowy dzień pracy",
  "daily_tasks": ["5-6 typowych codziennych zadań, pełne zdania (ok. 10-14 słów każde), nie pojedyncze słowa"],
  "pros": ["4-5 plusów, pełne zdania (ok. 10-14 słów) z krótkim wyjaśnieniem dlaczego to plus"], "cons": ["3-4 minusy, pełne zdania (ok. 10-14 słów) z krótkim wyjaśnieniem dlaczego to minus"],
  "requirements": ["6-9 typowych wymagań z ogłoszeń, krótkie frazy, np. wykształcenie, znajomość programów, prawo jazdy kat. B, języki"],
@@ -789,7 +812,7 @@ Do każdego stanowiska podaj 3-5 MAŁYCH punktów (zadań), które użytkownik m
 opartych na wymaganiach z prawdziwych ofert pracy (np. studia z danej dziedziny, kurs Excela, znajomość programu Symfonia/SAP/Comarch,
 prawo jazdy kat. B, certyfikat, język angielski B2, 2 lata doświadczenia). Uwzględnij to, co użytkownik już ma — takie zadania oznacz "already_has": true.
 Zwróć JSON:
-{{"milestones": [{{"title": "stanowisko", "description": "2 pełne zdania (ok. 30-40 słów) — czym się zajmuje na tym stanowisku i jak wygląda praca", "salary": "widełki brutto", "years": "np. 0-2 lata",
+{{"milestones": [{{"title": "stanowisko", "description": "1 pełne zdanie (ok. 18-25 słów) — czym się zajmuje na tym stanowisku", "salary": "widełki brutto", "years": "np. 0-2 lata",
    "requirements": ["wymagania z ofert, pełne frazy, nie pojedyncze słowa"],
    "tasks": [{{"title": "krótka nazwa zadania", "description": "1 pełne zdanie (ok. 15-20 słów) — co dokładnie trzeba zrobić i jak to zdobyć",
               "type": "studies|course|skill|certificate|language|license|experience|other", "already_has": false}}]}}]}}"""
@@ -968,7 +991,7 @@ a nie ogólniki typu "znajdź kurs" czy "skorzystaj ze szkolenia". Jeśli dotycz
 szkoleniowy, KFS, staż, dofinansowanie studiów podyplomowych, bon na zasiedlenie) i co trzeba tam zrobić (jaki wniosek, do kogo). Dla STUDIÓW
 (patrz wyżej) podawaj kierunek + kilka przykładowych uczelni, nigdy jedną wskazaną z imienia jako jedyną.
 Zwróć JSON:
-{{"overview": "3 pełne zdania (ok. 55-70 słów) — konkretne wyjaśnienie czym jest ten punkt, dlaczego jest ważny i co zyskujesz go zdobywając",
+{{"overview": "2 pełne zdania (ok. 30-40 słów) — zwięzłe wyjaśnienie czym jest ten punkt i dlaczego jest ważny",
  "steps": ["4-5 konkretnych, nazwanych z imienia kroków jak to zdobyć, każdy pełnym zdaniem (ok. 15-20 słów) z kontekstem (z nazwami kursów/platform/programów, a dla studiów: kierunek + kilka przykładowych uczelni)"],
  "free_tips": ["2-4 konkretne, nazwane z imienia sposoby zrobienia tego za darmo lub taniej, pełne zdania (ok. 12-16 słów)"],
  "specializations": ["tylko dla studiów/kursów: możliwe specjalizacje, inaczej pusta lista"],
@@ -1010,7 +1033,7 @@ Uwzględnij darmowe materiały, kursy z urzędu pracy, ćwiczenia praktyczne i b
 nazw firm/akademii/programów, których istnienia nie jesteś pewien — używaj ogólnych, realnych kategorii (platformy typu YouTube/Udemy/Coursera,
 szkolenia finansowane z KFS/bonu szkoleniowego w urzędzie pracy).
 Zwróć JSON:
-{{"hours_per_week": liczba, "summary": "2 pełne zdania (ok. 25-35 słów) — podsumowanie planu i podejścia",
+{{"hours_per_week": liczba, "summary": "1 pełne zdanie (ok. 15-20 słów) — podsumowanie planu i podejścia",
  "weeks": [{{"week": 1, "focus": "temat tygodnia", "goal": "1 pełne zdanie (ok. 15-20 słów) — co umiesz po tygodniu",
             "items": [{{"title": "zadanie", "description": "1 pełne zdanie (ok. 15-20 słów) — jak dokładnie to zrobić, z konkretami", "hours": liczba}}]}}],
  "tips": ["3 rady motywacyjne/organizacyjne, pełne zdania (ok. 12-16 słów)"]}}"""
@@ -1266,7 +1289,7 @@ WAŻNE — bądź KONKRETNY, nie ogólnikowy: w "steps" i "free_tips" podawaj NA
 (bon szkoleniowy, KFS, staż) — nie pisz ogólnie "znajdź kurs" czy "skorzystaj ze szkolenia". Jeśli dotyczy studiów, nigdy nie wskazuj jednej
 konkretnej uczelni jako jedynej słusznej — podaj kierunek i kilka przykładowych uczelni, które go oferują.
 Zwróć JSON:
-{{"overview": "2 pełne zdania (ok. 30-40 słów) — czym jest ta czynność i dlaczego pomaga w drodze do celu",
+{{"overview": "1 pełne zdanie (ok. 18-25 słów) — czym jest ta czynność i dlaczego pomaga w drodze do celu",
  "steps": ["3-4 konkretne, nazwane z imienia kroki, każdy pełnym zdaniem (ok. 15-20 słów) z kontekstem"],
  "free_tips": ["2-3 konkretne, nazwane z imienia sposoby zrobienia tego za darmo, pełne zdania (ok. 12-16 słów)"], "specializations": [], "time_estimate": "ile to zwykle trwa",
  "resources": [{{"type": "youtube|course|studies|urzad_pracy|webinar|certificate|article", "platform": "np. YouTube, Coursera, Google",

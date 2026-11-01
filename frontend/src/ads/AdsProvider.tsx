@@ -18,18 +18,28 @@ const INTERSTITIAL_INTRO_MS = 1800;
 type AdsCtx = {
   showAds: boolean;
   // Shows a rewarded ad (free users). Resolves true when the action may proceed.
-  watchAd: (reason: string) => Promise<boolean>;
+  watchAd: (reason: string, count?: number) => Promise<boolean>;
   // Same, but specifically for generating a brand-new career path: Premium users skip the
   // ad UNLESS they've already used their monthly quota of free path generations, in which
-  // case they also see a (clearly-labelled) rewarded ad to continue.
+  // case they also see rewarded ads to continue. Building a path always costs 2 ads.
   watchRoadmapAd: (reason: string) => Promise<boolean>;
 };
 
 const Ctx = createContext<AdsCtx>({ showAds: false, watchAd: async () => true, watchRoadmapAd: async () => true });
 export const useAds = () => useContext(Ctx);
 
+const ROADMAP_AD_COUNT = 2;
+
 type Stage = "intro" | "playing" | "thanks";
-type Sim = { kind: "rewarded" | "interstitial"; reason?: string; stage: Stage; resolve: (ok: boolean) => void; premiumQuota?: boolean };
+type Sim = {
+  kind: "rewarded" | "interstitial";
+  reason?: string;
+  stage: Stage;
+  resolve: (ok: boolean) => void;
+  premiumQuota?: boolean;
+  index: number;
+  total: number;
+};
 
 export function AdsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -56,7 +66,7 @@ export function AdsProvider({ children }: { children: React.ReactNode }) {
   }, [showAds]);
 
   // Drives the actual ad once the user (or the auto-advancing interstitial intro)
-  // moves a session into the "playing" stage. Runs exactly once per session.
+  // moves a session into the "playing" stage. Re-runs for each ad when total > 1.
   useEffect(() => {
     if (!sim || sim.stage !== "playing" || playingRef.current) return;
     playingRef.current = true;
@@ -82,7 +92,7 @@ export function AdsProvider({ children }: { children: React.ReactNode }) {
   }, [sim]);
 
   const watchAd = useCallback(
-    (reason: string) => {
+    (reason: string, count = 1) => {
       if (!showAds) return Promise.resolve(true);
       return new Promise<boolean>((resolve) => {
         busy.current = true;
@@ -90,6 +100,8 @@ export function AdsProvider({ children }: { children: React.ReactNode }) {
           kind: "rewarded",
           reason,
           stage: "intro",
+          index: 1,
+          total: count,
           resolve: (ok) => {
             busy.current = false;
             resolve(ok);
@@ -101,11 +113,12 @@ export function AdsProvider({ children }: { children: React.ReactNode }) {
   );
 
   // Premium users get PREMIUM_MONTHLY_GENERATIONS new career-path generations/month ad-free
-  // (tracked server-side); past that, they see the same rewarded ad free users always see.
+  // (tracked server-side); past that, they also need to watch ads to continue.
+  // Building any career path (free, or over-quota Premium) always costs ROADMAP_AD_COUNT ads.
   const quotaExceeded = !!user?.is_premium && (user.roadmap_generations_used ?? 0) >= (user.roadmap_generations_limit ?? Infinity);
   const watchRoadmapAd = useCallback(
     (reason: string) => {
-      if (!user?.is_premium) return watchAd(reason);
+      if (!user?.is_premium) return watchAd(reason, ROADMAP_AD_COUNT);
       if (!quotaExceeded) return Promise.resolve(true);
       return new Promise<boolean>((resolve) => {
         busy.current = true;
@@ -114,6 +127,8 @@ export function AdsProvider({ children }: { children: React.ReactNode }) {
           reason,
           premiumQuota: true,
           stage: "intro",
+          index: 1,
+          total: ROADMAP_AD_COUNT,
           resolve: (ok) => {
             busy.current = false;
             resolve(ok);
@@ -134,6 +149,8 @@ export function AdsProvider({ children }: { children: React.ReactNode }) {
       setSim({
         kind: "interstitial",
         stage: "intro",
+        index: 1,
+        total: 1,
         resolve: () => {
           busy.current = false;
         },
@@ -149,12 +166,17 @@ export function AdsProvider({ children }: { children: React.ReactNode }) {
     setSim(null);
   };
 
+  // Moves from the "thanks" screen of ad N straight into the "intro" of ad N+1,
+  // used whenever a flow requires watching more than one ad in a row.
+  const onNextAd = () => setSim((prev) => (prev ? { ...prev, stage: "intro", index: prev.index + 1 } : prev));
+
   return (
     <Ctx.Provider value={{ showAds, watchAd, watchRoadmapAd }}>
       {children}
       <AdModal
         sim={sim}
         onWatch={() => setSim((prev) => (prev ? { ...prev, stage: "playing" } : prev))}
+        onNextAd={onNextAd}
         onPremium={() => {
           close(false);
           router.push("/premium");
@@ -172,12 +194,14 @@ export function AdsProvider({ children }: { children: React.ReactNode }) {
 function AdModal({
   sim,
   onWatch,
+  onNextAd,
   onPremium,
   onCancel,
   onThanksDone,
 }: {
   sim: Sim | null;
   onWatch: () => void;
+  onNextAd: () => void;
   onPremium: () => void;
   onCancel: () => void;
   onThanksDone: () => void;
@@ -219,12 +243,15 @@ function AdModal({
 
   if (!view) return null;
   const rewarded = view.kind === "rewarded";
+  const moreAdsLeft = rewarded && view.total > 1 && view.index < view.total;
 
   return (
     <Modal visible={!!sim} animationType="fade" statusBarTranslucent onRequestClose={() => rewarded && view.stage === "intro" && onCancel()}>
       <View style={[styles.root, { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.lg }]} testID="ad-modal">
         <View style={styles.top}>
-          <Text style={styles.adLabel}>REKLAMA</Text>
+          <Text style={styles.adLabel} testID="ad-counter-label">
+            {view.total > 1 ? `REKLAMA ${view.index}/${view.total}` : "REKLAMA"}
+          </Text>
           {view.stage === "intro" && rewarded ? (
             <Pressable testID="ad-intro-close-button" onPress={onCancel} style={styles.close} hitSlop={10}>
               <Ionicons name="close" size={22} color={colors.onSurface} />
@@ -240,13 +267,23 @@ function AdModal({
           <View style={styles.center}>
             <Ionicons name={rewarded ? "gift" : "megaphone"} size={56} color={colors.brandPrimary} />
             <Txt variant="title" style={{ textAlign: "center" }}>
-              {rewarded ? (view.premiumQuota ? "Wykorzystano limit ścieżek w tym miesiącu" : "Obejrzyj reklamę, aby odebrać nagrodę") : "Za chwilę krótka reklama"}
+              {rewarded
+                ? view.premiumQuota
+                  ? "Wykorzystano limit ścieżek w tym miesiącu"
+                  : view.index > 1
+                    ? "Obejrzyj drugą reklamę, aby odebrać nagrodę"
+                    : "Obejrzyj reklamę, aby odebrać nagrodę"
+                : "Za chwilę krótka reklama"}
             </Txt>
             <Txt style={{ textAlign: "center" }} testID="ad-intro-text">
               {rewarded
                 ? view.premiumQuota
-                  ? `Masz już Premium, ale wykorzystano w tym miesiącu limit nowych ścieżek kariery. Obejrzyj krótką reklamę, aby ${view.reason ?? "kontynuować"} — limit odnowi się w przyszłym miesiącu.`
-                  : `Aby ${view.reason ?? "kontynuować i zobaczyć wyniki"}, obejrzyj krótką reklamę lub przejdź na Premium.`
+                  ? `Masz już Premium, ale wykorzystano w tym miesiącu limit nowych ścieżek kariery. Obejrzyj ${view.total > 1 ? `${view.total} krótkie reklamy` : "krótką reklamę"}, aby ${view.reason ?? "kontynuować"} — limit odnowi się w przyszłym miesiącu.`
+                  : view.total > 1
+                    ? view.index > 1
+                      ? `Jeszcze jedna reklama i gotowe — zaraz ${view.reason ?? "kontynuujesz"}.`
+                      : `Aby ${view.reason ?? "kontynuować i zobaczyć wyniki"}, obejrzyj ${view.total} krótkie reklamy pod rząd lub przejdź na Premium.`
+                    : `Aby ${view.reason ?? "kontynuować i zobaczyć wyniki"}, obejrzyj krótką reklamę lub przejdź na Premium.`
                 : "Reklamy pomagają utrzymać aplikację za darmo. Z Premium nie zobaczysz żadnych reklam."}
             </Txt>
           </View>
@@ -268,10 +305,12 @@ function AdModal({
               <Ionicons name="heart" size={32} color={colors.onBrandPrimary} />
             </View>
             <Txt variant="title" style={{ textAlign: "center" }} testID="ad-thanks-title">
-              Dziękujemy za obejrzenie reklamy!
+              {moreAdsLeft ? "Dziękujemy! Jeszcze jedna reklama" : "Dziękujemy za obejrzenie reklamy!"}
             </Txt>
             <Txt style={{ textAlign: "center" }}>
-              {rewarded ? "Twoja nagroda czeka — " : ""}Dzięki reklamom aplikacja Zawodowcy jest darmowa dla wszystkich.
+              {moreAdsLeft
+                ? "Obejrzyj drugą reklamę, aby dokończyć i odebrać nagrodę."
+                : `${rewarded ? "Twoja nagroda czeka — " : ""}Dzięki reklamom aplikacja Zawodowcy jest darmowa dla wszystkich.`}
             </Txt>
           </View>
         )}
@@ -280,12 +319,16 @@ function AdModal({
           {view.stage === "intro" ? (
             <>
               {rewarded ? <Button testID="ad-intro-watch-button" title="Obejrzyj reklamę" icon="play" onPress={onWatch} /> : null}
-              {!view.premiumQuota ? (
+              {!view.premiumQuota && view.index === 1 ? (
                 <Button testID="ad-go-premium" title="Przejdź na Premium" variant={rewarded ? "ghost" : "primary"} icon="diamond" onPress={onPremium} />
               ) : null}
             </>
           ) : view.stage === "thanks" && rewarded ? (
-            <Button testID="ad-thanks-continue-button" title="Super, kontynuuj" icon="checkmark" onPress={onThanksDone} />
+            moreAdsLeft ? (
+              <Button testID="ad-thanks-next-button" title="Obejrzyj kolejną reklamę" icon="play" onPress={onNextAd} />
+            ) : (
+              <Button testID="ad-thanks-continue-button" title="Super, kontynuuj" icon="checkmark" onPress={onThanksDone} />
+            )
           ) : null}
         </View>
       </View>

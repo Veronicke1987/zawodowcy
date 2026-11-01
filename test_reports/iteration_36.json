@@ -1,0 +1,27 @@
+{
+  "summary": "Backend-only regression test for the Claude Haiku 5.5 'thinking disabled' token-cost fix in ask_llm() (server.py line ~223). Ran a full end-to-end flow with a fresh TEST_ user: register -> profile -> recommendations/generate (poll) -> careers/{id} -> roadmap/custom (poll) -> roadmap/tasks/{id}/resources -> daily-plan/settings+poll. New pytest suite test_thinking_disabled_regression.py: 6/6 passed. Verified every LLM-JSON response has all required fields present, no empty/missing fields, and no truncation signatures (all narrative string fields end with proper sentence punctuation, no list items cut mid-word/ending in dangling punctuation like ',' ';' ':' '-'). Scanned backend.err.log/backend.out.log for 'No JSON in LLM response' and Anthropic invalid_request_error about the thinking param — found NONE; all 6 LiteLLM/anthropic claude-haiku-5-5 calls completed cleanly with no exceptions logged.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_thinking_disabled_regression.py", "/app/test_reports/pytest/pytest_thinking_regression.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ask_llm() fix is minimal, well-scoped (only branches on provider=='anthropic'), and well-commented with the exact measured token numbers (10472 -> 2049) that motivated it — good practice for future maintainers.",
+    "max_tokens=4096 safety cap did not truncate any of the 6 structured-JSON call sites exercised (recommendations [10 items], career detail, roadmap milestones+tasks, task resources [the highest-risk endpoint per the request, 5-8 resource objects], daily-plan week). All completed with full terminal punctuation and no dangling list items.",
+    "server.py is ~1393 lines — still a monolith; not a regression from this change but worth flagging again for future refactor into modules (routes/llm/models)."
+  ],
+  "updated_files": ["/app/backend/tests/test_thinking_disabled_regression.py"],
+  "success_rate": {"backend": "100% (6/6 pytest tests passed)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "Created one fresh TEST_thinking_<hex>@test.pl user via /api/auth/register (not cleaned up; prefixed TEST_ for easy identification, includes a TEST_Elektryk budowlany custom path).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "test_thinking_disabled_regression.py exercises recommendations/generate, careers/{id}, roadmap/custom, roadmap/tasks/{id}/resources, and daily-plan/settings end-to-end in one pytest class (kept in a single class deliberately, since pytest-xdist's loadscope in this repo's pytest.ini splits scope per-class, not per-module — splitting across workers would break the shared-session dependency chain). Note: custom-path titles like a bare 'TEST_Elektryk' (single word) can get rejected by the LLM profession-validator as looking like a 'testowy ciąg znaków' — use multi-word titles (e.g. 'TEST_Elektryk budowlany') for future custom-path tests to avoid false 400s unrelated to this fix.",
+  "rca_of_issue": "N/A - no bug found. The thinking-disabled + max_tokens=4096 change behaved exactly as intended: identical structurally-complete, non-truncated Polish JSON across every LLM-backed endpoint tested, with zero errors in backend logs. This confirms the cost optimization is safe with no quality/correctness regression."
+}

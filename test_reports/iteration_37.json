@@ -1,0 +1,28 @@
+{
+  "summary": "Backend-only regression test for round 2 token-cost optimization: (1) Anthropic prompt caching via cache_control ephemeral breakpoint on system message in ask_llm(), (2) compact JSON keys (t/i/s/w/m/sa/d/r/g) in run_recommendations() mapped back to full field names with missing_skills capped at 2. Ran full E2E flow with fresh TEST_ user: register -> PUT/GET /api/profile -> POST /api/recommendations/generate + poll GET /api/recommendations -> GET /api/careers/{id} -> POST /api/roadmap/custom + poll GET /api/roadmap -> GET /api/roadmap/tasks/{id}/resources. New pytest suite test_prompt_caching_compact_keys.py: 9/9 passed. Verified ALL 10 recommendation items (5 now + 5 future) have every required full field (title, industry, summary, why, match, salary, demand, ai_risk, missing_skills, id, category) present and non-empty, with ZERO leakage of short keys (t/i/s/w/m/sa/d/r/g). match is numeric 0-100, missing_skills <= 2 items, all narrative fields (summary/why) are full Polish sentences ending in proper punctuation. Also confirmed the LlmChat library (emergentintegrations 0.2.2) passes initial_messages (including the cache_control dict) straight through to litellm/Anthropic unmodified, so the cache_control param reaches the Anthropic API as intended. Backend logs scanned for 'cache_control', 'KeyError', and exceptions in run_recommendations -- found NONE relevant (only unrelated pre-existing Gemini/Vertex 429 rate-limit errors from a different, unused provider code path, timestamped before this test run).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_prompt_caching_compact_keys.py", "/app/test_reports/pytest/pytest_prompt_caching_compact_keys.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ask_llm() cache_control change only applies to the 'anthropic' provider branch and is backward-compatible with the existing LlmChat(initial_messages=None) default path for other providers -- no regression risk for non-Anthropic calls.",
+    "run_recommendations() key_map.get(k, k) fallback is a safe defensive pattern: even if the LLM occasionally returns an unexpected/extra key, it passes through unmapped rather than crashing or silently dropping data -- good defensive coding.",
+    "Confirmed via library source (emergentintegrations/llm/chat.py line 135) that initial_messages is forwarded as self.messages verbatim to litellm.acompletion, so the cache_control dict on the system message block survives untouched en route to the Anthropic API -- no transformation/stripping risk in the integration layer.",
+    "No validation exists if the LLM returns fewer than 5 items in 'now'/'future' or omits a field entirely (silent None/missing) -- in this run the LLM complied fully, but there's no defensive fallback/retry if it doesn't; worth considering for future hardening (not a regression from this change, pre-existing risk)."
+  ],
+  "updated_files": ["/app/backend/tests/test_prompt_caching_compact_keys.py"],
+  "success_rate": {"backend": "100% (9/9 pytest tests passed)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "Created one fresh TEST_cache_<hex>@test.pl user via /api/auth/register (not cleaned up; prefixed TEST_ for easy identification). Also created a TEST_<title> custom roadmap path under that user.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "test_prompt_caching_compact_keys.py is a standalone single-class pytest suite (register->profile->recommendations->careers->roadmap/custom->resources) exercising both new changes end-to-end. Required env var export before running locally: `export $(grep EXPO_PUBLIC_BACKEND_URL frontend/.env)` since the shell didn't have it set by default (note: system prompt refers to EXPO_BACKEND_URL but the actual .env key in this repo is EXPO_PUBLIC_BACKEND_URL). Reused this for BASE_URL in the new test file.",
+  "rca_of_issue": "N/A - no bug found. Both the Anthropic prompt-caching system-message breakpoint and the compact-JSON-key recommendations schema behaved exactly as intended: all 10 career objects had complete, correctly-mapped full field names with no short-key leakage, numeric match scores in range, missing_skills capped at 2, and full-sentence Polish content. No cache_control-related API errors, no KeyErrors, and no exceptions logged in run_recommendations or any downstream endpoint (careers detail, custom roadmap, roadmap task resources)."
+}
