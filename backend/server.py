@@ -1758,6 +1758,11 @@ async def google_oauth_callback(code: str | None = None, state: str | None = Non
     if not (code and state):
         return _oauth_result_page(False, "Brak wymaganych parametrów w odpowiedzi Google.")
     state_doc = await db.oauth_states.find_one_and_delete({"state": state, "purpose": "gmail_connect"})
+    if state_doc:
+        created_at = state_doc["created_at"]
+        if created_at.tzinfo is None:  # Motor/PyMongo returns naive UTC datetimes by default
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        state_doc["created_at"] = created_at
     if not state_doc or (datetime.now(timezone.utc) - state_doc["created_at"]).total_seconds() > 600:
         return _oauth_result_page(False, "Link wygasł lub został już użyty. Wróć do panelu administratora i spróbuj ponownie.")
     try:
