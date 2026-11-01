@@ -60,7 +60,7 @@ EMAIL_REPLY_TO = os.environ.get("EMAIL_REPLY_TO")
 # MongoDB (never in .env), since it is generated at runtime, not provisioned up front.
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
-GOOGLE_GMAIL_SENDER = os.environ.get("GOOGLE_GMAIL_SENDER", "support.zawodowcy@gmail.com")
+GOOGLE_GMAIL_SENDER = os.environ.get("GOOGLE_GMAIL_SENDER", "zawodowcy.support@gmail.com")
 BACKEND_PUBLIC_URL = os.environ.get("BACKEND_PUBLIC_URL", "").rstrip("/")
 GOOGLE_REDIRECT_URI = f"{BACKEND_PUBLIC_URL}/api/auth/google/callback"
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
