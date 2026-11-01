@@ -6,6 +6,7 @@ import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withRepeat, wit
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, Career, Recommendations } from "@/src/api";
+import { useAuth } from "@/src/auth";
 import { Badge, Button, ErrorBox, Ionicons, AiNote, PressableScale, Txt } from "@/src/components/ui";
 import { StreakBadge } from "@/src/components/Streak";
 import { usesNativeTabs } from "@/src/navigation";
@@ -18,6 +19,7 @@ export default function Matches() {
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
   const styles = useStyles();
   const { colors } = useTheme();
+  const { t } = useAuth();
   const router = useRouter();
   const [tab, setTab] = useState<"now" | "future">("now");
 
@@ -41,9 +43,9 @@ export default function Matches() {
         <View style={styles.titleRow}>
           <View style={{ flex: 1, gap: spacing.xs }}>
             <Txt variant="caption" testID="matches-mode">
-              {data?.mode && RESET_MODES[data.mode] ? RESET_MODES[data.mode].short : "TWOJE DOPASOWANIA"}
+              {data?.mode && RESET_MODES[data.mode] ? RESET_MODES[data.mode].short : t.matches.headerFallback}
             </Txt>
-            <Txt variant="title">Zawody dla Ciebie</Txt>
+            <Txt variant="title">{t.matches.title}</Txt>
           </View>
           <StreakBadge testID="matches-streak-badge" />
         </View>
@@ -51,8 +53,8 @@ export default function Matches() {
           <View style={styles.segment}>
             {(
               [
-                ["now", "Już teraz", "flash"],
-                ["future", "Z nauką", "school"],
+                ["now", t.matches.tabNow, "flash"],
+                ["future", t.matches.tabFuture, "school"],
               ] as const
             ).map(([k, label, icon]) => (
               <Pressable
@@ -68,7 +70,7 @@ export default function Matches() {
           </View>
           <Pressable testID="matches-custom-path-chip" onPress={() => router.push("/custom-path")} style={styles.customChip}>
             <Ionicons name="add-circle-outline" size={18} color={colors.brandPrimary} />
-            <Text style={styles.customChipText}>Własny cel</Text>
+            <Text style={styles.customChipText}>{t.matches.customGoal}</Text>
           </Pressable>
         </View>
       </View>
@@ -81,12 +83,12 @@ export default function Matches() {
         </View>
       ) : data?.status === "error" ? (
         <View style={{ padding: spacing.xl }}>
-          <ErrorBox testID="matches-gen-error" message="Nie udało się przygotować propozycji. Spróbuj ponownie." onRetry={regenerate} />
+          <ErrorBox testID="matches-gen-error" message={t.matches.genError} onRetry={regenerate} />
         </View>
       ) : data?.status === "none" ? (
         <View style={{ padding: spacing.xl, gap: spacing.lg }}>
-          <Txt>Nie masz jeszcze propozycji zawodów. Wypełnij krótką ankietę, a AI dobierze zawody dopasowane do Ciebie.</Txt>
-          <Button testID="matches-start-quiz" title="Wypełnij ankietę" onPress={() => router.push("/quiz")} />
+          <Txt>{t.matches.emptyText}</Txt>
+          <Button testID="matches-start-quiz" title={t.matches.startQuiz} onPress={() => router.push("/quiz")} />
         </View>
       ) : (
         <FlatList
@@ -103,15 +105,11 @@ export default function Matches() {
                   <Text style={styles.summaryText}>{data.summary}</Text>
                 </View>
               ) : null}
-              <Txt variant="caption">
-                {tab === "now"
-                  ? "Zawody, w których możesz zacząć pracę już teraz"
-                  : "Zawody pasujące do Ciebie, które wymagają nowych umiejętności"}
-              </Txt>
+              <Txt variant="caption">{tab === "now" ? t.matches.subtitleNow : t.matches.subtitleFuture}</Txt>
             </View>
           }
           renderItem={({ item, index }) => <CareerCard career={item} index={index} onPress={() => router.push(`/career/${item.id}`)} />}
-          ListEmptyComponent={<Txt>Brak propozycji w tej kategorii.</Txt>}
+          ListEmptyComponent={<Txt>{t.matches.emptyCategory}</Txt>}
           ListFooterComponent={list.length ? <AiNote style={{ marginTop: spacing.sm }} /> : null}
         />
       )}
@@ -122,6 +120,7 @@ export default function Matches() {
 function CareerCard({ career, index, onPress }: { career: Career; index: number; onPress: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
+  const { t } = useAuth();
   return (
     <Animated.View entering={FadeInDown.delay(index * 70).duration(400)}>
       <PressableScale testID={`career-card-${index}`} onPress={onPress} style={styles.card}>
@@ -132,7 +131,7 @@ function CareerCard({ career, index, onPress }: { career: Career; index: number;
           </View>
           <View style={styles.match}>
             <Text style={styles.matchNum}>{career.match}%</Text>
-            <Text style={styles.matchLbl}>dopasowania</Text>
+            <Text style={styles.matchLbl}>{t.matches.matchSuffix}</Text>
           </View>
         </View>
         <Txt numberOfLines={3}>{career.summary}</Txt>
@@ -145,8 +144,8 @@ function CareerCard({ career, index, onPress }: { career: Career; index: number;
           ) : null}
         </View>
         <View style={styles.metaRow}>
-          {career.demand ? <Badge label={`Popyt: ${career.demand}`} tone="success" /> : null}
-          {career.ai_risk ? <Badge label={`Ryzyko AI: ${career.ai_risk}`} tone="neutral" /> : null}
+          {career.demand ? <Badge label={`${t.matches.demandLabel}: ${career.demand}`} tone="success" /> : null}
+          {career.ai_risk ? <Badge label={`${t.matches.aiRiskLabel}: ${career.ai_risk}`} tone="neutral" /> : null}
         </View>
       </PressableScale>
     </Animated.View>
@@ -156,6 +155,7 @@ function CareerCard({ career, index, onPress }: { career: Career; index: number;
 function Analyzing() {
   const styles = useStyles();
   const { colors } = useTheme();
+  const { t } = useAuth();
   const pulse = useSharedValue(0.4);
   useEffect(() => {
     pulse.value = withRepeat(withTiming(1, { duration: 900 }), -1, true);
@@ -165,7 +165,7 @@ function Analyzing() {
     <View style={{ padding: spacing.xl, gap: spacing.md }} testID="matches-analyzing">
       <View style={styles.summary}>
         <Ionicons name="sparkles" size={18} color={colors.onBrandTertiary} />
-        <Text style={styles.summaryText}>AI analizuje Twój profil i wymagania z ofert pracy… To może potrwać do minuty.</Text>
+        <Text style={styles.summaryText}>{t.matches.analyzing}</Text>
       </View>
       {[0, 1, 2].map((i) => (
         <Animated.View key={i} style={[styles.skeleton, s]} />

@@ -1,0 +1,39 @@
+{
+  "summary": "Tested this session's 3 new features (country selection, daily/weekly plan gate swap, shared AI roadmap cache) + regression (login, quiz, admin panel, premium). Backend: new pytest suite test_iter38_country_plan_gating_cache.py (8/8 passed) covering country CRUD/persistence/validation, daily-plan 403-for-free/200-for-premium, weekly study-plan open to free (400 not 403), and the shared-cache speedup assertion (2nd identical custom-title generation measurably faster than 1st). Frontend (mobile viewport, Polish UI): verified country radio list updates instantly and persists after reload for ania_t1@test.pl (then reverted back to PL); verified Plan dzienny free-user upsell (testID plan-daily-go-premium) with no way to configure a plan; verified Plan tygodniowy free-user ad-gated creation flow (ad modal -> watch -> thanks -> plan generates), weekly item checkboxes toggle and week counter (0/5 -> 1/5) updates, and 'Ułóż plan na kolejne 8 tygodni' creates a 2nd 8-week block with working block chip switcher (plan-block-chip-0/1) preserving each block's own checkbox state. Verified via API+UI that a Premium user gets the daily-plan setup form (no upsell, no ad modal) and daily plan generates successfully in Polish. Verified admin panel loads with stats/user list for ADMIN account.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/roadmap or /api/roadmap/custom (run_roadmap)", "issue": "Observed one transient JSONDecodeError in run_roadmap ('Expecting , delimiter...') when the Anthropic model's JSON response was malformed, causing roadmap status to permanently become 'error' for that job (no retry/repair logic exists for malformed LLM JSON in ask_llm/run_roadmap). Re-submitting the same custom path succeeded on retry. Pre-existing robustness gap, not introduced by this session's changes, but surfaced during testing of the new cache feature."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter38_country_plan_gating_cache.py",
+    "/app/test_reports/pytest/pytest_iter38.xml"
+  ],
+  "action_items": [
+    "Consider adding a retry (1-2 attempts) or a more lenient JSON repair step in ask_llm()/run_roadmap() for malformed LLM JSON responses, since a single bad generation currently permanently fails that roadmap job until the user re-triggers it manually.",
+    "No functional bugs found in the 3 new features (country selection, daily/weekly plan gating swap, shared AI cache) or in the regression checklist (login, quiz, roadmap 2-ad flow verified via code review, task resource details, admin panel, premium subscribe)."
+  ],
+  "critical_code_review_comments": [
+    "account/country PATCH correctly validates against COUNTRY_CONFIG and returns the updated public_user, which the frontend uses to refresh local auth state (refresh()) — good round-trip design, confirmed instant UI update + persistence after reload.",
+    "daily-plan/settings correctly 403s for non-premium users with a clear Polish error message; study-plan (weekly) endpoints intentionally have no is_premium gate, matching the stated requirement that weekly plans are free+ad-gated while daily is premium-only.",
+    "Shared AI cache (career_templates keyed by career_cache_key(title, country)) correctly short-circuits full roadmap generation via apply_cached_roadmap for a second user with an identical custom title — measured and asserted >40% speed reduction in the automated test, consistent with the 'short fit-check vs. full generation' design described in the request.",
+    "Weekly plan next-block endpoint guards against double-submission while a block is still 'pending' (returns {status:'pending'} early) — good defensive coding against double taps.",
+    "country change notice text in profile.tsx correctly warns the user that already-generated paths/plans won't retroactively change language/market — good UX transparency given content is cached per (title, country)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter38_country_plan_gating_cache.py"
+  ],
+  "success_rate": {"backend": "100% (8/8 new pytest tests passed)", "frontend": "100% of tested flows passed (country selection, daily-premium-gate, weekly-free-ad-gate, weekly checkboxes/counter, next-block + block chips, premium daily plan, admin panel)"},
+  "seed_data_creation": "Created TEST_ui_prem_892585@test.pl (subscribed to Premium via API, 2 custom roadmap paths created, 1 succeeded after a transient LLM JSON error on the first attempt). Created several TEST_iter38_* users via the new pytest suite (not cleaned up, prefixed TEST_ for identification). Temporarily set ania_t1@test.pl's country to US to test persistence, then reverted it back to PL before finishing (also generated one weekly study plan + 1 extra 8-week block in English for that account during the US-country test window, left in place as it doesn't affect functionality — just an English-language weekly plan artifact on a Polish demo account).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "ania_t1@test.pl now has a weekly study plan with 2 blocks (one generated while country was briefly set to US, so its content is in English) — this is leftover test data, not a bug, but worth knowing if testing that account's Plan tygodniowy next. Shell env var is EXPO_PUBLIC_BACKEND_URL (not EXPO_BACKEND_URL) in this repo's frontend/.env.",
+  "rca_of_issue": "One transient failure observed: run_roadmap's ask_llm() call returned JSON that failed json.loads with 'Expecting , delimiter' at a specific character offset -- i.e. the Anthropic claude-haiku-5-5 response was truncated/malformed mid-string, likely either a token-limit cutoff or an occasional formatting slip. The except block correctly caught it and marked the roadmap as status='error' (no crash, no stuck pending state), but there is no automatic retry, so the user's roadmap generation silently failed until they re-triggered it. This is unrelated to the session's actual changes (country/plan-gating/cache) and reproduced randomly (second attempt with the identical title succeeded immediately). Recommend low-priority hardening: 1 retry with the same prompt before marking status=error."
+}

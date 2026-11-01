@@ -57,6 +57,7 @@ export default function CareerDetail() {
   const styles = useStyles();
   const { colors } = useTheme();
   const router = useRouter();
+  const { refresh, t } = useAuth();
   const [choosing, setChoosing] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
   const [chooseError, setChooseError] = useState("");
@@ -78,12 +79,12 @@ export default function CareerDetail() {
     setLimitHit(false);
     const existing = paths.data?.paths.some((p) => p.title === career?.title);
     if (!existing && atLimit) {
-      setChooseError("Masz już 3 ścieżki. Usuń jedną w zakładce Droga, aby dodać nową.");
+      setChooseError(t.career.limitReached);
       setLimitHit(true);
       return;
     }
     // re-activating an existing path generates nothing, so no ad
-    if (!existing && !(await watchRoadmapAd("zbudować swoją ścieżkę kariery"))) return;
+    if (!existing && !(await watchRoadmapAd(t.ads.reasonBuildPath))) return;
     setChoosing(true);
     try {
       await api("/roadmap", { method: "POST", body: { career_id: id } });
@@ -107,7 +108,6 @@ export default function CareerDetail() {
   const career = q.data?.career;
   const d = q.data?.detail;
   const { showAds, watchRoadmapAd } = useAds();
-  const { refresh } = useAuth();
   const paths = useQuery({ queryKey: ["paths", "detail"], queryFn: () => api<PathsResponse>("/paths") });
   const atLimit = (paths.data?.paths.length ?? 0) >= (paths.data?.limit ?? 3);
   const alreadyMine = !!paths.data?.paths.some((p) => p.title === q.data?.career?.title);
@@ -130,12 +130,12 @@ export default function CareerDetail() {
         <View style={styles.body}>
           {career ? (
             <>
-              <Badge label={career.category === "now" ? "Możesz zacząć już teraz" : "Wymaga nowych umiejętności"} />
+              <Badge label={career.category === "now" ? t.career.badgeNow : t.career.badgeFuture} />
               <Txt variant="display" testID="career-title">
                 {career.title}
               </Txt>
               <View style={styles.metaRow}>
-                <Badge label={`${career.match}% dopasowania`} tone="success" />
+                <Badge label={`${career.match}${t.career.matchSuffix}`} tone="success" />
                 {career.salary ? <Badge label={career.salary} tone="neutral" /> : null}
               </View>
               {career.why ? <Txt>{career.why}</Txt> : null}
@@ -145,30 +145,30 @@ export default function CareerDetail() {
           {q.isLoading ? (
             <View style={styles.loading} testID="career-loading">
               <ActivityIndicator color={colors.brandPrimary} />
-              <Txt>Przygotowuję opis zawodu na podstawie ofert pracy…</Txt>
+              <Txt>{t.career.loadingDetail}</Txt>
             </View>
           ) : q.isError ? (
             <ErrorBox testID="career-error" message={(q.error as Error).message} onRetry={() => q.refetch()} />
           ) : d ? (
             <Animated.View entering={FadeIn.duration(400)} style={{ gap: spacing.xl }}>
-              <Section title="Na czym polega ta praca" icon="document-text-outline">
+              <Section title={t.career.sectionWhatYouDo} icon="document-text-outline">
                 <Txt testID="career-description">{d.description}</Txt>
                 <List items={d.daily_tasks} icon="ellipse" iconSize={8} color={colors.muted} />
               </Section>
               <View style={styles.proCon}>
                 <View style={[styles.pcBox, { backgroundColor: colors.successTint }]} testID="career-pros">
-                  <Text style={[styles.pcTitle, { color: colors.success }]}>Plusy</Text>
+                  <Text style={[styles.pcTitle, { color: colors.success }]}>{t.career.sectionPros}</Text>
                   <List items={d.pros} icon="checkmark-circle" color={colors.success} />
                 </View>
                 <View style={[styles.pcBox, { backgroundColor: colors.errorTint }]} testID="career-cons">
-                  <Text style={[styles.pcTitle, { color: colors.error }]}>Minusy</Text>
+                  <Text style={[styles.pcTitle, { color: colors.error }]}>{t.career.sectionCons}</Text>
                   <List items={d.cons} icon="close-circle" color={colors.error} />
                 </View>
               </View>
-              <Section title="Wymagania z ofert pracy" icon="clipboard-outline">
+              <Section title={t.career.sectionRequirements} icon="clipboard-outline">
                 <List items={d.requirements} icon="checkbox-outline" color={colors.brandPrimary} />
               </Section>
-              <Section title="Jak zacząć" icon="rocket-outline">
+              <Section title={t.career.sectionHowToStart} icon="rocket-outline">
                 {d.how_to_start.map((s, i) => (
                   <View key={i} style={styles.stepRow}>
                     <View style={styles.stepNum}>
@@ -179,11 +179,11 @@ export default function CareerDetail() {
                 ))}
               </Section>
               {d.career_levels?.length ? (
-                <Section title="Możliwa ścieżka awansu" icon="trending-up-outline">
+                <Section title={t.career.sectionCareerLevels} icon="trending-up-outline">
                   <Txt>{d.career_levels.join("  →  ")}</Txt>
                 </Section>
               ) : null}
-              <Section title="Zobacz aktualne oferty" icon="search-outline">
+              <Section title={t.career.sectionJobOffers} icon="search-outline">
                 <View style={styles.links}>
                   {q.data!.job_links.map((l) => (
                     <PressableScale
@@ -212,16 +212,16 @@ export default function CareerDetail() {
         {chooseError ? <ErrorBox testID="choose-error" message={chooseError} /> : null}
         {!limitHit && showAds && !alreadyMine && !atLimit ? (
           <Text style={styles.notice} testID="choose-ad-notice">
-            Przed zbudowaniem ścieżki zobaczysz krótką reklamę.{" "}
+            {t.career.adNotice}{" "}
             <Text style={styles.noticeLink} testID="choose-go-premium" onPress={() => router.push("/premium")} suppressHighlighting>
-              Bez reklam z Premium.
+              {t.career.goPremiumInline}
             </Text>
           </Text>
         ) : null}
         {limitHit ? (
-          <Button testID="choose-manage-paths" title="Zarządzaj ścieżkami" variant="ghost" onPress={() => router.dismissTo("/(tabs)/road")} />
+          <Button testID="choose-manage-paths" title={t.career.managePaths} variant="ghost" onPress={() => router.dismissTo("/(tabs)/road")} />
         ) : null}
-        <Button testID="choose-path-button" title="Wybieram tę ścieżkę" icon="flag" onPress={choose} loading={choosing} disabled={!d} />
+        <Button testID="choose-path-button" title={t.career.chooseButton} icon="flag" onPress={choose} loading={choosing} disabled={!d} />
       </View>
 
       <Modal visible={celebrate} transparent animationType="fade" statusBarTranslucent>
@@ -231,9 +231,9 @@ export default function CareerDetail() {
               <Ionicons name="trophy" size={44} color={colors.onBrandPrimary} />
             </View>
             <Txt variant="title" style={{ textAlign: "center" }}>
-              Świetny wybór!
+              {t.career.celebrateTitle}
             </Txt>
-            <Txt style={{ textAlign: "center" }}>Buduję Twoją drogę do celu: {career?.title}</Txt>
+            <Txt style={{ textAlign: "center" }}>{t.career.celebrateText(career?.title)}</Txt>
           </Animated.View>
         </View>
       </Modal>

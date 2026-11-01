@@ -6,15 +6,13 @@ import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAds } from "@/src/ads/AdsProvider";
-import { api, DailyItem, DailyPlan, StudyPlan, TaskResources } from "@/src/api";
+import { api, DailyItem, DailyPlan, StudyPlan, StudyPlanItem, TaskResources } from "@/src/api";
+import { useAuth } from "@/src/auth";
 import { AiNote, Badge, Button, Chip, ErrorBox, IconButton, Ionicons, PressableScale, Txt } from "@/src/components/ui";
 import { Block, ResourceRow, Sheet, useTaskSheetStyles } from "@/src/components/TaskSheet";
 import { queryClient } from "@/src/query-client";
 import { playSuccess } from "@/src/sound";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
-
-const WEEKDAY_LABELS = ["Pon", "Wt", "Śr", "Czw", "Pt", "Sob", "Nd"];
-const WEEKDAY_FULL = ["poniedziałek", "wtorek", "środa", "czwartek", "piątek", "sobota", "niedziela"];
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -24,6 +22,7 @@ export default function PlanScreen() {
   const insets = useSafeAreaInsets();
   const styles = useStyles();
   const router = useRouter();
+  const { t } = useAuth();
   const [tab, setTab] = useState<"daily" | "weekly">("daily");
 
   return (
@@ -31,16 +30,16 @@ export default function PlanScreen() {
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
         <IconButton testID="plan-back-button" icon="arrow-back" onPress={() => (router.canGoBack() ? router.back() : router.replace("/(tabs)/road"))} />
         <View style={{ flex: 1 }}>
-          <Txt variant="heading">Plan nauki</Txt>
+          <Txt variant="heading">{t.plan.screenTitle}</Txt>
         </View>
       </View>
 
       <View style={styles.tabs} testID="plan-tabs">
         <Pressable testID="plan-tab-daily" onPress={() => setTab("daily")} style={[styles.tab, tab === "daily" && styles.tabActive]}>
-          <Text style={[styles.tabText, tab === "daily" && styles.tabTextActive]}>Plan dzienny</Text>
+          <Text style={[styles.tabText, tab === "daily" && styles.tabTextActive]}>{t.plan.dailyTab}</Text>
         </Pressable>
         <Pressable testID="plan-tab-weekly" onPress={() => setTab("weekly")} style={[styles.tab, tab === "weekly" && styles.tabActive]}>
-          <Text style={[styles.tabText, tab === "weekly" && styles.tabTextActive]}>Plan tygodniowy</Text>
+          <Text style={[styles.tabText, tab === "weekly" && styles.tabTextActive]}>{t.plan.weeklyTab}</Text>
         </Pressable>
       </View>
 
@@ -53,11 +52,15 @@ export default function PlanScreen() {
 function DailyPlanTab() {
   const insets = useSafeAreaInsets();
   const styles = useStyles();
+  const router = useRouter();
   const { colors } = useTheme();
+  const { user, t } = useAuth();
   const { watchAd, showAds } = useAds();
+  const isPremium = !!user?.is_premium;
   const q = useQuery({
     queryKey: ["daily-plan"],
     queryFn: () => api<DailyPlan>("/roadmap/daily-plan"),
+    enabled: isPremium,
     refetchInterval: (query) => (["pending"].includes(query.state.data?.status ?? "") || query.state.data?.next_status === "pending" ? 3000 : false),
   });
   const data = q.data;
@@ -90,9 +93,9 @@ function DailyPlanTab() {
   const submit = async () => {
     setError("");
     const n = parseInt(value, 10);
-    if (!n || n <= 0) return setError("Podaj liczbę większą od zera.");
-    if (freeDays.length >= 7) return setError("Zostaw przynajmniej jeden dzień nauki w tygodniu.");
-    if (!(await watchAd("ułożyć Twój plan nauki"))) return;
+    if (!n || n <= 0) return setError(t.plan.errorPositiveNumber);
+    if (freeDays.length >= 7) return setError(t.plan.errorKeepOneDay);
+    if (!(await watchAd(t.ads.reasonDailyPlan))) return;
     setStarting(true);
     try {
       await api("/roadmap/daily-plan/settings", { method: "POST", body: { time_mode: mode, time_value: n, free_days: freeDays } });
@@ -126,7 +129,7 @@ function DailyPlanTab() {
   const unlockWeek = async (index: number) => {
     setUnlocking(true);
     try {
-      if (!(await watchAd("zobaczyć resztę tego tygodnia"))) return;
+      if (!(await watchAd(t.ads.reasonRestOfWeek))) return;
       await api(`/roadmap/daily-plan/weeks/${index}/unlock`, { method: "POST" });
       queryClient.invalidateQueries({ queryKey: ["daily-plan"] });
     } catch (e: any) {
@@ -138,7 +141,7 @@ function DailyPlanTab() {
 
   const generateNextWeek = async () => {
     setError("");
-    if (!(await watchAd("wygenerować plan na kolejny tydzień"))) return;
+    if (!(await watchAd(t.ads.reasonNextWeek))) return;
     setGeneratingNext(true);
     try {
       await api("/roadmap/daily-plan/next-week", { method: "POST" });
@@ -149,6 +152,21 @@ function DailyPlanTab() {
       setGeneratingNext(false);
     }
   };
+
+  if (!isPremium) {
+    return (
+      <ScrollView contentContainerStyle={{ padding: spacing.xl, paddingBottom: insets.bottom + spacing.xl }}>
+        <View style={styles.upsell} testID="plan-daily-upsell">
+          <Ionicons name="diamond" size={40} color={colors.brandPrimary} />
+          <Txt variant="title" style={{ textAlign: "center" }}>
+            {t.plan.dailyPremiumTitle}
+          </Txt>
+          <Txt style={{ textAlign: "center" }}>{t.plan.dailyPremiumText}</Txt>
+          <Button testID="plan-daily-go-premium" title={t.plan.goPremium} icon="diamond" onPress={() => router.push("/premium")} />
+        </View>
+      </ScrollView>
+    );
+  }
 
   if (q.isLoading) {
     return <ActivityIndicator style={{ marginTop: spacing.xxl }} color={colors.brandPrimary} />;
@@ -166,52 +184,40 @@ function DailyPlanTab() {
   if (showForm) {
     return (
       <ScrollView contentContainerStyle={{ padding: spacing.xl, gap: spacing.lg, paddingBottom: insets.bottom + spacing.xl }}>
-        {data?.status === "error" ? <ErrorBox testID="daily-plan-gen-error" message="Nie udało się ułożyć planu. Spróbuj ponownie." /> : null}
+        {data?.status === "error" ? <ErrorBox testID="daily-plan-gen-error" message={t.plan.genError} /> : null}
         <View style={styles.center}>
           <Ionicons name="today-outline" size={44} color={colors.brandPrimary} />
           <Txt variant="title" style={{ textAlign: "center" }}>
-            {data?.status === "ready" ? "Zmień ustawienia planu" : "Ułóż plan dzienny"}
+            {data?.status === "ready" ? t.plan.editSettingsTitle : t.plan.freeSettingsTitle}
           </Txt>
-          <Txt style={{ textAlign: "center" }}>Codzienne, konkretne kroki na Twojej drodze kariery.</Txt>
+          <Txt style={{ textAlign: "center" }}>{t.plan.dailyFormSubtitle}</Txt>
         </View>
 
         <View style={{ gap: spacing.sm }}>
-          <Txt variant="heading">Ile czasu możesz poświęcić?</Txt>
+          <Txt variant="heading">{t.plan.timeQuestionLabel}</Txt>
           <View style={{ flexDirection: "row", gap: spacing.sm }}>
-            <Chip testID="daily-mode-daily" label="Dziennie" selected={mode === "daily"} onPress={() => setMode("daily")} />
-            <Chip testID="daily-mode-weekly" label="Tygodniowo" selected={mode === "weekly"} onPress={() => setMode("weekly")} />
+            <Chip testID="daily-mode-daily" label={t.plan.chipDaily} selected={mode === "daily"} onPress={() => setMode("daily")} />
+            <Chip testID="daily-mode-weekly" label={t.plan.chipWeekly} selected={mode === "weekly"} onPress={() => setMode("weekly")} />
           </View>
           <View style={styles.timeRow}>
             <TextInput testID="daily-time-input" value={value} onChangeText={setValue} keyboardType="number-pad" style={styles.timeInput} maxLength={3} />
-            <Txt>{mode === "daily" ? "minut dziennie" : "godzin tygodniowo"}</Txt>
+            <Txt>{mode === "daily" ? t.plan.minutesPerDay : t.plan.hoursPerWeek}</Txt>
           </View>
         </View>
 
         <View style={{ gap: spacing.sm }}>
-          <Txt variant="heading">Które dni mają być wolne (bez planu)?</Txt>
+          <Txt variant="heading">{t.plan.freeDaysQuestion}</Txt>
           <View style={{ flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" }}>
-            {WEEKDAY_LABELS.map((label, i) => (
+            {t.weekdays.short.map((label, i) => (
               <Chip key={i} testID={`daily-freeday-${i}`} label={label} selected={freeDays.includes(i)} onPress={() => toggleFreeDay(i)} />
             ))}
           </View>
         </View>
 
-        {!data?.is_premium ? (
-          <Txt variant="caption" testID="daily-plan-free-note">
-            Jako darmowy użytkownik widzisz od razu 2 najbliższe dni nauki w tygodniu — resztę tygodnia odblokujesz, oglądając reklamę. Premium pokazuje
-            od razu cały tydzień.
-          </Txt>
-        ) : null}
-
         {error ? <ErrorBox testID="daily-plan-form-error" message={error} /> : null}
-        {showAds ? (
-          <Text style={styles.adNotice} testID="daily-plan-ad-notice">
-            Przed ułożeniem planu zobaczysz krótką reklamę.
-          </Text>
-        ) : null}
-        <Button testID="daily-plan-create-button" title={data?.status === "ready" ? "Zapisz i ułóż ten tydzień od nowa" : "Ułóż mój plan dzienny"} icon="sparkles" onPress={submit} loading={starting} />
+        <Button testID="daily-plan-create-button" title={data?.status === "ready" ? t.plan.saveAndRebuildButton : t.plan.createButton} icon="sparkles" onPress={submit} loading={starting} />
         {data?.status === "ready" ? (
-          <Button testID="daily-plan-cancel-edit" title="Anuluj" variant="ghost" onPress={() => setEditMode(false)} />
+          <Button testID="daily-plan-cancel-edit" title={t.common.cancel} variant="ghost" onPress={() => setEditMode(false)} />
         ) : null}
       </ScrollView>
     );
@@ -221,8 +227,8 @@ function DailyPlanTab() {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={colors.brandPrimary} />
-        <Txt variant="heading">Układam Twój plan dzienny…</Txt>
-        <Txt style={{ textAlign: "center" }}>To potrwa około minuty.</Txt>
+        <Txt variant="heading">{t.plan.dailyBuildingTitle}</Txt>
+        <Txt style={{ textAlign: "center" }}>{t.plan.buildingText}</Txt>
       </View>
     );
   }
@@ -240,15 +246,15 @@ function DailyPlanTab() {
       {weeks.length > 1 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }} testID="daily-week-switcher">
           {weeks.map((w) => (
-            <Chip key={w.index} testID={`daily-week-chip-${w.index}`} label={`Tydzień ${w.index + 1}`} selected={w.index === week?.index} onPress={() => setWeekIndex(w.index)} />
+            <Chip key={w.index} testID={`daily-week-chip-${w.index}`} label={t.plan.weekChipLabel(w.index + 1)} selected={w.index === week?.index} onPress={() => setWeekIndex(w.index)} />
           ))}
         </ScrollView>
       ) : null}
 
       <View style={styles.summary}>
-        <Badge label={`${doneCount}/${activeItems.length || 0} punktów w tym tygodniu`} />
+        <Badge label={t.plan.weekProgressLabel(doneCount, activeItems.length || 0)} />
         <Txt variant="caption">
-          {data!.settings?.time_mode === "daily" ? `${data!.settings?.time_value} min dziennie` : `${data!.settings?.time_value} h tygodniowo`}
+          {data!.settings?.time_mode === "daily" ? `${data!.settings?.time_value} ${t.plan.minutesPerDay}` : `${data!.settings?.time_value} ${t.plan.hoursPerWeek}`}
         </Txt>
       </View>
       <AiNote />
@@ -259,8 +265,8 @@ function DailyPlanTab() {
           <Animated.View key={d.date} entering={FadeInDown} style={[styles.day, isToday && styles.dayToday]} testID={`daily-day-${d.weekday}`}>
             <View style={styles.dayHead}>
               <Text style={[styles.dayName, isToday && { color: colors.brandPrimary }]}>
-                {WEEKDAY_FULL[d.weekday].toUpperCase()}
-                {isToday ? " · DZIŚ" : ""}
+                {t.weekdays.full[d.weekday].toUpperCase()}
+                {isToday ? ` · ${t.weekdays.today}` : ""}
               </Text>
               <Text style={styles.dayDate}>
                 {d.date.slice(8, 10)}.{d.date.slice(5, 7)}
@@ -269,15 +275,15 @@ function DailyPlanTab() {
             {d.free ? (
               <View style={styles.freeRow}>
                 <Ionicons name="cafe-outline" size={16} color={colors.muted} />
-                <Txt variant="caption">Dzień wolny</Txt>
+                <Txt variant="caption">{t.plan.dayOffLabel}</Txt>
               </View>
             ) : d.locked ? (
               <View style={styles.freeRow} testID={`daily-day-locked-${d.weekday}`}>
                 <Ionicons name="lock-closed" size={16} color={colors.muted} />
-                <Txt variant="caption">Zablokowane · {d.locked_count} punkt(y) do odblokowania</Txt>
+                <Txt variant="caption">{t.plan.lockedDayLabel(d.locked_count)}</Txt>
               </View>
             ) : d.items.length === 0 ? (
-              <Txt variant="caption">Brak punktów na ten dzień.</Txt>
+              <Txt variant="caption">{t.plan.noItemsForDay}</Txt>
             ) : (
               d.items.map((it) => (
                 <View key={it.id} style={styles.item}>
@@ -289,7 +295,7 @@ function DailyPlanTab() {
                       <Text style={[styles.itemTitle, it.done && { color: colors.muted, textDecorationLine: "line-through" }]}>{it.title}</Text>
                       <Txt variant="caption">{it.description}</Txt>
                     </View>
-                    {it.long_term ? <Badge label="co tydzień" tone="neutral" /> : null}
+                    {it.long_term ? <Badge label={t.plan.weeklyBadge} tone="neutral" /> : null}
                     <Ionicons name="chevron-forward" size={16} color={colors.muted} />
                   </PressableScale>
                 </View>
@@ -300,33 +306,33 @@ function DailyPlanTab() {
       })}
 
       {lockedDay ? (
-        <Button testID="daily-unlock-week-button" title="Odblokuj resztę tygodnia za reklamę" icon="play-circle" variant="secondary" onPress={() => unlockWeek(week!.index)} loading={unlocking} />
+        <Button testID="daily-unlock-week-button" title={t.plan.unlockWeekButton} icon="play-circle" variant="secondary" onPress={() => unlockWeek(week!.index)} loading={unlocking} />
       ) : null}
 
       {isLastWeek ? (
         data!.next_status === "pending" ? (
           <View style={styles.center} testID="daily-next-week-pending">
             <ActivityIndicator color={colors.brandPrimary} />
-            <Txt variant="caption">Generowanie kolejnego tygodnia…</Txt>
+            <Txt variant="caption">{t.plan.generatingNextWeek}</Txt>
           </View>
         ) : data!.can_generate_next ? (
           <>
             {showAds ? (
               <Text style={styles.adNotice} testID="daily-next-week-ad-notice">
-                Przed nowym tygodniem zobaczysz krótką reklamę.
+                {t.plan.nextWeekAdNotice}
               </Text>
             ) : null}
-            <Button testID="daily-next-week-button" title="Wygeneruj kolejny tydzień" icon="arrow-forward-circle" onPress={generateNextWeek} loading={generatingNext} />
+            <Button testID="daily-next-week-button" title={t.plan.nextWeekButton} icon="arrow-forward-circle" onPress={generateNextWeek} loading={generatingNext} />
           </>
         ) : (
           <Txt variant="caption" style={{ textAlign: "center" }} testID="daily-next-week-locked">
-            Kolejny tydzień odblokuje się bliżej końca tego tygodnia.
+            {t.plan.nextWeekLockedHint}
           </Txt>
         )
       ) : null}
 
       {error ? <ErrorBox testID="daily-plan-action-error" message={error} /> : null}
-      <Button testID="daily-plan-settings-button" title="Zmień ustawienia" variant="ghost" icon="settings-outline" onPress={() => setEditMode(true)} />
+      <Button testID="daily-plan-settings-button" title={t.plan.changeSettingsButton} variant="ghost" icon="settings-outline" onPress={() => setEditMode(true)} />
 
       <DailyItemSheet item={activeItem} onClose={() => setActiveItem(null)} />
     </ScrollView>
@@ -336,6 +342,7 @@ function DailyPlanTab() {
 function DailyItemSheet({ item, onClose }: { item: DailyItem | null; onClose: () => void }) {
   const styles = useTaskSheetStyles();
   const { colors } = useTheme();
+  const { t } = useAuth();
   const q = useQuery({
     queryKey: ["daily-item-resources", item?.id],
     queryFn: () => api<TaskResources>(`/roadmap/daily-plan/items/${item!.id}/resources`),
@@ -363,11 +370,11 @@ function DailyItemSheet({ item, onClose }: { item: DailyItem | null; onClose: ()
             ) : data ? (
               <>
                 <Txt>{data.overview}</Txt>
-                <Block title="Kroki" items={data.steps} numbered icon="checkmark-circle-outline" />
-                {data.free_tips?.length ? <Block title="Za darmo" items={data.free_tips} icon="gift-outline" /> : null}
+                <Block title={t.plan.stepsLabel} items={data.steps} numbered icon="checkmark-circle-outline" />
+                {data.free_tips?.length ? <Block title={t.plan.freeLabel} items={data.free_tips} icon="gift-outline" /> : null}
                 {data.resources?.length ? (
                   <View style={{ gap: spacing.sm }}>
-                    <Txt variant="heading">Materiały</Txt>
+                    <Txt variant="heading">{t.plan.materialsLabel}</Txt>
                     {data.resources.map((r, i) => (
                       <ResourceRow key={i} res={r} testID={`daily-item-resource-${i}`} />
                     ))}
@@ -383,13 +390,15 @@ function DailyItemSheet({ item, onClose }: { item: DailyItem | null; onClose: ()
   );
 }
 
-// ------------------------------------------------------------------ weekly study plan (8 weeks, Premium)
+// ------------------------------------------------------------------ weekly study plan (8-week blocks, shared cache, 1 ad per (re)generate)
 function WeeklyPlanTab() {
   const insets = useSafeAreaInsets();
   const styles = useStyles();
-  const router = useRouter();
   const { colors } = useTheme();
+  const { t } = useAuth();
+  const { watchAd, showAds } = useAds();
   const [open, setOpen] = useState<number>(1);
+  const [blockIndex, setBlockIndex] = useState<number | null>(null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
 
@@ -399,8 +408,16 @@ function WeeklyPlanTab() {
     refetchInterval: (query) => (query.state.data?.status === "pending" ? 3000 : false),
   });
 
+  const data = q.data;
+  const blocks = data?.blocks || [];
+
+  useEffect(() => {
+    if (blocks.length) setBlockIndex((cur) => (cur === null ? blocks[blocks.length - 1].index : cur));
+  }, [blocks.length]);
+
   const create = async () => {
     setError("");
+    if (!(await watchAd(t.ads.reasonWeeklyPlan))) return;
     setStarting(true);
     try {
       await api("/roadmap/study-plan", { method: "POST" });
@@ -412,25 +429,43 @@ function WeeklyPlanTab() {
     }
   };
 
-  const data = q.data;
-  const plan = data?.plan;
+  const createNextBlock = async () => {
+    setError("");
+    if (!(await watchAd(t.ads.reasonNextBlock))) return;
+    setStarting(true);
+    try {
+      await api("/roadmap/study-plan/next-block", { method: "POST" });
+      setBlockIndex(null);
+      queryClient.invalidateQueries({ queryKey: ["study-plan"] });
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setStarting(false);
+    }
+  };
 
-  if (!q.isLoading && !data?.is_premium) {
-    return (
-      <ScrollView contentContainerStyle={{ padding: spacing.xl, paddingBottom: insets.bottom + spacing.xl }}>
-        <View style={styles.upsell} testID="plan-weekly-upsell">
-          <Ionicons name="diamond" size={40} color={colors.brandPrimary} />
-          <Txt variant="title" style={{ textAlign: "center" }}>
-            Plan tygodniowy to funkcja Premium
-          </Txt>
-          <Txt style={{ textAlign: "center" }}>
-            Pełny 8-tygodniowy plan nauki z rozpisanymi godzinami dostępny jest w Premium — bez reklam, od razu.
-          </Txt>
-          <Button testID="plan-weekly-go-premium" title="Przejdź na Premium" icon="diamond" onPress={() => router.push("/premium")} />
-        </View>
-      </ScrollView>
-    );
-  }
+  const toggleItem = async (item: StudyPlanItem) => {
+    const next = !item.done;
+    const prev = queryClient.getQueryData<StudyPlan>(["study-plan"]);
+    if (!prev?.blocks) return;
+    const updated: StudyPlan = {
+      ...prev,
+      blocks: prev.blocks.map((b) =>
+        !b.plan ? b : { ...b, plan: { ...b.plan, weeks: b.plan.weeks.map((w) => ({ ...w, items: w.items.map((it) => (it.id === item.id ? { ...it, done: next } : it)) })) } },
+      ),
+    };
+    queryClient.setQueryData(["study-plan"], updated);
+    if (next) playSuccess();
+    try {
+      await api(`/roadmap/study-plan/items/${item.id}`, { method: "PATCH", body: { done: next } });
+    } catch {
+      queryClient.setQueryData(["study-plan"], prev);
+    }
+  };
+
+  const block = blocks.find((b) => b.index === blockIndex) || blocks[blocks.length - 1];
+  const plan = block?.plan;
+  const isLastBlock = block?.index === blocks[blocks.length - 1]?.index;
 
   return (
     <ScrollView contentContainerStyle={{ padding: spacing.xl, gap: spacing.lg, paddingBottom: insets.bottom + spacing.xl }}>
@@ -438,20 +473,28 @@ function WeeklyPlanTab() {
         <ActivityIndicator color={colors.brandPrimary} />
       ) : q.isError ? (
         <ErrorBox testID="plan-error" message={(q.error as Error).message} onRetry={() => q.refetch()} />
-      ) : data?.status === "pending" ? (
+      ) : block?.status === "pending" ? (
         <View style={styles.center} testID="plan-pending">
           <ActivityIndicator size="large" color={colors.brandPrimary} />
-          <Txt variant="heading">Układam Twój plan…</Txt>
-          <Txt style={{ textAlign: "center" }}>To potrwa około minuty.</Txt>
+          <Txt variant="heading">{t.plan.buildingTitle}</Txt>
+          <Txt style={{ textAlign: "center" }}>{t.plan.buildingText}</Txt>
         </View>
-      ) : data?.status === "ready" && plan ? (
+      ) : block?.status === "ready" && plan ? (
         <>
+          {blocks.length > 1 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }} testID="plan-block-switcher">
+              {blocks.map((b) => (
+                <Chip key={b.index} testID={`plan-block-chip-${b.index}`} label={t.plan.blockChipLabel(b.index * 8 + 1, b.index * 8 + 8)} selected={b.index === block?.index} onPress={() => setBlockIndex(b.index)} />
+              ))}
+            </ScrollView>
+          ) : null}
           <View style={styles.summary} testID="plan-summary">
-            <Badge label={`ok. ${plan.hours_per_week} h tygodniowo`} />
+            <Badge label={t.plan.approxHoursPerWeek(plan.hours_per_week)} />
             <Txt>{plan.summary}</Txt>
           </View>
           {plan.weeks.map((w, i) => {
             const isOpen = open === w.week;
+            const doneCount = w.items.filter((it) => it.done).length;
             return (
               <Animated.View key={w.week} entering={FadeInDown.delay(i * 50)}>
                 <Pressable testID={`plan-week-${w.week}`} onPress={() => setOpen(isOpen ? 0 : w.week)} style={styles.week}>
@@ -460,19 +503,22 @@ function WeeklyPlanTab() {
                       <Text style={styles.weekNumText}>{w.week}</Text>
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.kicker}>TYDZIEŃ {w.week}</Text>
+                      <Text style={styles.kicker}>{t.plan.weekLabel} {w.week}</Text>
                       <Text style={styles.focus}>{w.focus}</Text>
                     </View>
+                    <Badge label={`${doneCount}/${w.items.length}`} tone="neutral" />
                     <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={20} color={colors.muted} />
                   </View>
                   {isOpen ? (
                     <View style={{ gap: spacing.md, marginTop: spacing.md }}>
-                      <Txt variant="caption">Cel: {w.goal}</Txt>
-                      {w.items.map((it, j) => (
-                        <View key={j} style={styles.item}>
-                          <Ionicons name="ellipse" size={8} color={colors.brandPrimary} style={{ marginTop: 7 }} />
+                      <Txt variant="caption">{t.plan.goalLabel}: {w.goal}</Txt>
+                      {w.items.map((it) => (
+                        <View key={it.id} style={styles.item}>
+                          <Pressable onPress={() => toggleItem(it)} hitSlop={8}>
+                            <Ionicons name={it.done ? "checkmark-circle" : "ellipse-outline"} size={22} color={it.done ? colors.brandPrimary : colors.borderStrong} />
+                          </Pressable>
                           <View style={{ flex: 1 }}>
-                            <Text style={styles.itemTitle}>
+                            <Text style={[styles.itemTitle, it.done && { color: colors.muted, textDecorationLine: "line-through" }]}>
                               {it.title} <Text style={styles.hours}>· {it.hours} h</Text>
                             </Text>
                             <Txt>{it.description}</Txt>
@@ -487,26 +533,40 @@ function WeeklyPlanTab() {
           })}
           {plan.tips?.length ? (
             <View style={{ gap: spacing.sm }}>
-              <Txt variant="heading">Rady na start</Txt>
-              {plan.tips.map((t, i) => (
+              <Txt variant="heading">{t.plan.tipsTitle}</Txt>
+              {plan.tips.map((tip, i) => (
                 <View key={i} style={styles.item}>
                   <Ionicons name="bulb-outline" size={18} color={colors.brandPrimary} />
-                  <Txt style={{ flex: 1 }}>{t}</Txt>
+                  <Txt style={{ flex: 1 }}>{tip}</Txt>
                 </View>
               ))}
             </View>
           ) : null}
-          <Button testID="plan-regenerate-button" title="Ułóż nowy plan" variant="ghost" icon="refresh" onPress={create} loading={starting} />
+          {isLastBlock ? (
+            <>
+              {showAds ? (
+                <Text style={styles.adNotice} testID="plan-next-block-ad-notice">
+                  {t.plan.nextBlockAdNotice}
+                </Text>
+              ) : null}
+              <Button testID="plan-next-block-button" title={t.plan.nextBlockButton} variant="ghost" icon="arrow-forward-circle" onPress={createNextBlock} loading={starting} />
+            </>
+          ) : null}
           <AiNote />
         </>
       ) : (
         <View style={styles.center} testID="plan-empty">
           <Ionicons name="calendar-outline" size={44} color={colors.brandPrimary} />
           <Txt variant="title" style={{ textAlign: "center" }}>
-            {data?.status === "error" ? "Spróbujmy jeszcze raz" : "Ułóż plan nauki"}
+            {block?.status === "error" ? t.plan.emptyTitle : t.plan.weeklyEmptyTitle}
           </Txt>
-          <Txt style={{ textAlign: "center" }}>Plan obejmie najbliższe punkty na Twojej drodze i Twój dostępny czas.</Txt>
-          <Button testID="plan-create-button" title="Ułóż mój plan" icon="sparkles" onPress={create} loading={starting} style={{ alignSelf: "stretch" }} />
+          <Txt style={{ textAlign: "center" }}>{t.plan.weeklyEmptyText}</Txt>
+          {showAds ? (
+            <Text style={styles.adNotice} testID="plan-create-ad-notice">
+              {t.plan.weeklyCreateAdNotice}
+            </Text>
+          ) : null}
+          <Button testID="plan-create-button" title={t.plan.weeklyCreateButton} icon="sparkles" onPress={create} loading={starting} style={{ alignSelf: "stretch" }} />
         </View>
       )}
       {error ? <ErrorBox testID="plan-create-error" message={error} /> : null}

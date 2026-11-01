@@ -6,6 +6,7 @@ import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, Text, 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, Milestone, PathsResponse, Roadmap, Task } from "@/src/api";
+import { useAuth } from "@/src/auth";
 import { milestoneDone, RoadMap } from "@/src/components/RoadMap";
 import { MilestoneSheet, TaskSheet } from "@/src/components/TaskSheet";
 import { Button, ErrorBox, IconButton, Ionicons, AiNote, Txt } from "@/src/components/ui";
@@ -21,6 +22,7 @@ export default function RoadScreen() {
   const styles = useStyles();
   const { colors } = useTheme();
   const router = useRouter();
+  const { t } = useAuth();
   const [taskId, setTaskId] = useState<string | null>(null);
   const [ms, setMs] = useState<{ m: Milestone; i: number } | null>(null);
 
@@ -94,9 +96,9 @@ export default function RoadScreen() {
       <View style={[styles.header, { paddingTop: insets.top + spacing.lg }]}>
         <View style={styles.titleRow}>
           <View style={{ flex: 1, gap: spacing.xs }}>
-            <Txt variant="caption">TWOJA DROGA</Txt>
+            <Txt variant="caption">{t.road.headerKicker}</Txt>
             <Txt variant="title" numberOfLines={2} testID="road-career-title">
-              {data?.career?.title || "Ścieżka kariery"}
+              {data?.career?.title || t.road.titleFallback}
             </Txt>
           </View>
           {data?.path_id && (paths.data?.paths.length ?? 0) > 1 ? (
@@ -119,7 +121,7 @@ export default function RoadScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow} contentContainerStyle={styles.chipContent}>
           <Pressable testID="road-open-plan" onPress={() => router.push("/plan")} style={[styles.action, { backgroundColor: colors.brandPrimary }]}>
             <Ionicons name="calendar-outline" size={16} color={colors.onBrandPrimary} />
-            <Text style={[styles.actionText, { color: colors.onBrandPrimary }]}>Plan nauki</Text>
+            <Text style={[styles.actionText, { color: colors.onBrandPrimary }]}>{t.road.studyPlan}</Text>
           </Pressable>
           {(paths.data?.paths || []).map((p) => (
             <Pressable
@@ -149,22 +151,22 @@ export default function RoadScreen() {
             <Ionicons name="map" size={40} color={colors.onBrandTertiary} />
           </View>
           <Txt variant="title" style={{ textAlign: "center" }}>
-            Wybierz swój cel
+            {t.road.emptyTitle}
           </Txt>
-          <Txt style={{ textAlign: "center" }}>Otwórz jeden z proponowanych zawodów i kliknij „Wybieram tę ścieżkę”, a zbudujemy Ci drogę krok po kroku.</Txt>
-          <Button testID="road-go-matches" title="Zobacz zawody" icon="briefcase" onPress={() => router.navigate("/(tabs)")} style={{ alignSelf: "stretch" }} />
+          <Txt style={{ textAlign: "center" }}>{t.road.emptyText}</Txt>
+          <Button testID="road-go-matches" title={t.road.goToMatches} icon="briefcase" onPress={() => router.navigate("/(tabs)")} style={{ alignSelf: "stretch" }} />
         </View>
       ) : data?.status === "pending" ? (
         <View style={styles.empty} testID="road-building">
           <ActivityIndicator size="large" color={colors.brandPrimary} />
           <Txt variant="heading" style={{ textAlign: "center" }}>
-            Buduję Twoją drogę…
+            {t.road.buildingTitle}
           </Txt>
-          <Txt style={{ textAlign: "center" }}>AI analizuje wymagania z ofert pracy na każdym poziomie kariery. To potrwa około minuty.</Txt>
+          <Txt style={{ textAlign: "center" }}>{t.road.buildingText}</Txt>
         </View>
       ) : data?.status === "error" ? (
         <View style={{ padding: spacing.xl }}>
-          <ErrorBox testID="road-gen-error" message="Nie udało się zbudować drogi. Wybierz ścieżkę ponownie." onRetry={() => router.navigate("/(tabs)")} />
+          <ErrorBox testID="road-gen-error" message={t.road.genError} onRetry={() => router.navigate("/(tabs)")} />
         </View>
       ) : (
         <ScrollView
@@ -174,7 +176,7 @@ export default function RoadScreen() {
         >
           <View style={styles.hint}>
             <Ionicons name="information-circle-outline" size={18} color={colors.muted} />
-            <Text style={styles.hintText}>Dotknij punktu na drodze, aby zobaczyć podpowiedzi, linki i kursy.</Text>
+            <Text style={styles.hintText}>{t.road.hint}</Text>
           </View>
           <RoadMap milestones={milestones} onTask={(t) => setTaskId(t.id)} onMilestone={(m, i) => setMs({ m, i })} />
         </ScrollView>
@@ -190,10 +192,10 @@ export default function RoadScreen() {
       <Modal visible={confirmDelete} transparent animationType="fade" onRequestClose={() => setConfirmDelete(false)}>
         <View style={styles.overlay}>
           <View style={styles.dialog} testID="road-delete-dialog">
-            <Txt variant="heading">Usunąć tę ścieżkę?</Txt>
-            <Txt>„{data?.career?.title}” i postęp na tej drodze zostaną usunięte.</Txt>
-            <Button testID="road-delete-confirm" title="Usuń ścieżkę" onPress={deletePath} loading={deleting} />
-            <Button testID="road-delete-cancel" title="Anuluj" variant="ghost" onPress={() => setConfirmDelete(false)} />
+            <Txt variant="heading">{t.road.deleteTitle}</Txt>
+            <Txt>{t.road.deleteText(data?.career?.title)}</Txt>
+            <Button testID="road-delete-confirm" title={t.road.deleteConfirm} onPress={deletePath} loading={deleting} />
+            <Button testID="road-delete-cancel" title={t.road.deleteCancel} variant="ghost" onPress={() => setConfirmDelete(false)} />
           </View>
         </View>
       </Modal>

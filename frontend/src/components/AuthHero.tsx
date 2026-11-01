@@ -4,45 +4,26 @@ import { Text, View } from "react-native";
 import Animated, { Easing, FadeIn, FadeInUp, FadeOut, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import Svg, { Circle, Path } from "react-native-svg";
 
+import { useAuth } from "@/src/auth";
 import { IconName, Ionicons } from "@/src/components/ui";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
-
-// Alternates office and non-office jobs so the hero shows the app is for every kind of work.
-const JOBS: { title: string; area: string; icon: IconName; match: number }[] = [
-  { title: "Specjalista ds. wdrożeń", area: "Biuro i IT", icon: "laptop", match: 92 },
-  { title: "Elektryk", area: "Praca fizyczna", icon: "flash", match: 94 },
-  { title: "Specjalista ds. kadr i płac", area: "Biuro i HR", icon: "people", match: 90 },
-  { title: "Opiekun osób starszych", area: "Opieka i zdrowie", icon: "heart", match: 91 },
-  { title: "Analityk danych", area: "Biuro i IT", icon: "bar-chart", match: 89 },
-  { title: "Operator wózka widłowego", area: "Logistyka i magazyn", icon: "cube", match: 89 },
-  { title: "Księgowa", area: "Biuro i finanse", icon: "calculator", match: 93 },
-  { title: "Florysta", area: "Praca twórcza", icon: "flower", match: 90 },
-  { title: "Specjalista ds. marketingu", area: "Biuro i media", icon: "megaphone", match: 88 },
-  { title: "Kucharz", area: "Gastronomia", icon: "restaurant", match: 88 },
-];
-
-const SKILLS: { label: string; icon: IconName }[] = [
-  { label: "Kurs Excela", icon: "laptop" },
-  { label: "Prawo jazdy kat. C", icon: "car" },
-  { label: "Angielski B2", icon: "language" },
-  { label: "Uprawnienia SEP", icon: "flash" },
-  { label: "Kurs księgowości", icon: "calculator" },
-  { label: "Kurs opiekuna", icon: "heart" },
-];
 
 export function AuthHero({ topInset }: { topInset: number }) {
   const { colors } = useTheme();
   const styles = useStyles();
+  const { t } = useAuth();
+  const JOBS = t.auth.jobs;
+  const SKILLS = t.auth.skills;
   const [i, setI] = useState(0);
   const float = useSharedValue(0);
 
   useEffect(() => {
     float.value = withRepeat(withTiming(1, { duration: 2600, easing: Easing.inOut(Easing.quad) }), -1, true);
-    const t = setInterval(() => setI((x) => (x + 1) % JOBS.length), 2800);
-    return () => clearInterval(t);
-  }, [float]);
+    const timer = setInterval(() => setI((x) => (x + 1) % JOBS.length), 2800);
+    return () => clearInterval(timer);
+  }, [float, JOBS.length]);
   const up = useAnimatedStyle(() => ({ transform: [{ translateY: -4 * float.value }] }));
-  const job = JOBS[i];
+  const job = JOBS[i % JOBS.length];
 
   return (
     <View style={[styles.hero, { paddingTop: topInset + spacing.lg }]} testID="auth-hero">
@@ -53,18 +34,18 @@ export function AuthHero({ topInset }: { topInset: number }) {
         <Path d="M -10 300 C 90 250, 140 300, 220 230 S 330 150, 400 120" stroke={colors.onBrandPrimary} strokeOpacity={0.35} strokeWidth={3} strokeDasharray="2,10" strokeLinecap="round" fill="none" />
       </Svg>
 
-      <Text style={styles.logo} testID="app-logo" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} maxFontSizeMultiplier={1.1}>
-        Zawodowcy
+      <Text style={styles.logo} testID="app-logo" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5} maxFontSizeMultiplier={1.1}>
+        {t.common.appNameFull}
       </Text>
       <Text style={styles.tagline} testID="app-tagline" numberOfLines={2} maxFontSizeMultiplier={1.2}>
-        Zmiana zawodu i nowa ścieżka kariery — w każdej branży
+        {t.auth.heroTagline}
       </Text>
 
       <Animated.View entering={FadeInUp.delay(150).duration(500)} style={{ marginTop: spacing.lg }}>
         <Animated.View style={[styles.mainCard, up]} testID="auth-hero-job">
           <Animated.View key={job.title} entering={FadeIn.duration(350)} exiting={FadeOut.duration(200)} style={styles.cardRow}>
             <View style={styles.cardIcon}>
-              <Ionicons name={job.icon} size={22} color={colors.onBrandTertiary} />
+              <Ionicons name={job.icon as IconName} size={22} color={colors.onBrandTertiary} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.cardKicker} numberOfLines={1} maxFontSizeMultiplier={1.2}>
@@ -86,7 +67,7 @@ export function AuthHero({ topInset }: { topInset: number }) {
       <Animated.View entering={FadeInUp.delay(300).duration(500)} style={styles.skills}>
         {SKILLS.map((s) => (
           <View key={s.label} style={styles.chip}>
-            <Ionicons name={s.icon} size={15} color={colors.brandPrimary} />
+            <Ionicons name={s.icon as IconName} size={15} color={colors.brandPrimary} />
             <Text style={styles.chipText} numberOfLines={1} maxFontSizeMultiplier={1.2}>
               {s.label}
             </Text>

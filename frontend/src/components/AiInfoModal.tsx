@@ -16,7 +16,7 @@ export function AiInfoModal() {
   const styles = useStyles();
   const { colors } = useTheme();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, t } = useAuth();
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -35,31 +35,21 @@ export function AiInfoModal() {
           <View style={styles.icon}>
             <Ionicons name="sparkles" size={32} color={colors.onBrandPrimary} />
           </View>
-          <Text style={styles.title}>Zanim zaczniesz</Text>
-          <Text style={styles.body}>
-            Twoja ścieżka kariery, plan nauki i opisy zawodów są tworzone przez sztuczną inteligencję specjalnie dla
-            Ciebie — na podstawie Twoich odpowiedzi.
-          </Text>
-          <Text style={styles.body}>
-            Każde takie „myślenie” AI kosztuje prawdziwe pieniądze (tzw. tokeny). Dlatego{" "}
-            {premium ? "po wykorzystaniu Twojego miesięcznego limitu " : ""}
-            tworzenie nowej ścieżki kariery lub planu nauki poprzedza krótka reklama — to dzięki niej aplikacja
-            pozostaje darmowa.
-          </Text>
+          <Text style={styles.title}>{t.aiInfo.title}</Text>
+          <Text style={styles.body}>{t.aiInfo.body1}</Text>
+          <Text style={styles.body}>{t.aiInfo.body2(premium)}</Text>
           {premium ? (
             <Text style={styles.body} testID="ai-info-premium-note">
-              Masz Premium: {limit} nowych ścieżek kariery miesięcznie bez reklam (plan do nich zawsze gratis).
+              {t.aiInfo.premiumNote(limit)}
             </Text>
           ) : (
-            <Text style={styles.body}>
-              Z Premium (19 zł/mies.) znikają reklamy i masz {limit} nowych ścieżek kariery miesięcznie bez czekania.
-            </Text>
+            <Text style={styles.body}>{t.aiInfo.freeNote(limit)}</Text>
           )}
           <View style={{ gap: spacing.sm, width: "100%", marginTop: spacing.sm }}>
             {!premium ? (
               <Button
                 testID="ai-info-go-premium"
-                title="Przejdź na Premium"
+                title={t.plan.goPremium}
                 icon="diamond"
                 onPress={() => {
                   setVisible(false);
@@ -69,7 +59,7 @@ export function AiInfoModal() {
             ) : null}
             <Button
               testID="ai-info-dismiss"
-              title="Rozumiem, zaczynajmy"
+              title={t.aiInfo.dismissButton}
               variant={premium ? "primary" : "ghost"}
               onPress={() => setVisible(false)}
             />

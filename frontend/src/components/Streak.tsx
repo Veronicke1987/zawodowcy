@@ -9,8 +9,6 @@ import { maybeRequestReview } from "@/src/review";
 import { playSuccess } from "@/src/sound";
 import { makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
-const dayWord = (n: number) => (n === 1 ? "dzień" : "dni");
-
 // Compact badge for headers — shows the current login streak, or a dimmed
 // flame when yesterday was missed and the streak can still be restored today.
 export function StreakBadge({ testID }: { testID?: string }) {
@@ -41,7 +39,7 @@ export function StreakBadge({ testID }: { testID?: string }) {
 }
 
 export function StreakCard({ testID }: { testID?: string }) {
-  const { user } = useAuth();
+  const { user, t } = useAuth();
   const { colors } = useTheme();
   const styles = useStyles();
   const [open, setOpen] = useState(false);
@@ -56,8 +54,8 @@ export function StreakCard({ testID }: { testID?: string }) {
           <Ionicons name={broken ? "flame-outline" : "flame"} size={24} color={broken ? colors.muted : "#FF8A00"} />
         </View>
         <View style={{ flex: 1 }}>
-          <Txt variant="heading">{broken ? "Straciłeś serię!" : `${streak.count} ${dayWord(streak.count)} z rzędu`}</Txt>
-          <Txt variant="caption">{broken ? "Możesz ją dziś przywrócić za reklamę" : `Najdłuższa seria: ${streak.best} ${dayWord(streak.best)}`}</Txt>
+          <Txt variant="heading">{broken ? t.streak.lostCardTitle : t.streak.activeTitle(streak.count)}</Txt>
+          <Txt variant="caption">{broken ? t.streak.lostCardSub : t.streak.activeText(streak.best)}</Txt>
         </View>
         <Ionicons name="chevron-forward" size={18} color={colors.muted} />
       </PressableScale>
@@ -67,7 +65,7 @@ export function StreakCard({ testID }: { testID?: string }) {
 }
 
 function StreakModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const { user, refresh } = useAuth();
+  const { user, refresh, t } = useAuth();
   const { watchAd } = useAds();
   const { colors } = useTheme();
   const styles = useStyles();
@@ -79,7 +77,7 @@ function StreakModal({ visible, onClose }: { visible: boolean; onClose: () => vo
     setError("");
     setRestoring(true);
     try {
-      if (!(await watchAd("przywrócić swoją serię logowań"))) return;
+      if (!(await watchAd(t.ads.reasonRestoreStreak))) return;
       await api("/streak/restore", { method: "POST" });
       playSuccess();
       await refresh();
@@ -101,27 +99,25 @@ function StreakModal({ visible, onClose }: { visible: boolean; onClose: () => vo
             <>
               <Ionicons name="flame-outline" size={40} color={colors.muted} />
               <Txt variant="title" style={{ textAlign: "center" }}>
-                Straciłeś {streak.lost_count}-dniową serię!
+                {t.streak.lostTitle(streak.lost_count)}
               </Txt>
-              <Txt style={{ textAlign: "center" }}>Możesz ją dziś przywrócić, oglądając krótką reklamę.</Txt>
+              <Txt style={{ textAlign: "center" }}>{t.streak.lostText}</Txt>
               {error ? (
                 <Txt style={{ color: colors.error, textAlign: "center" }} testID="streak-restore-error">
                   {error}
                 </Txt>
               ) : null}
-              <Button testID="streak-restore-button" title="Przywróć serię za reklamę" icon="play" onPress={restore} loading={restoring} />
-              <Button testID="streak-dismiss-button" title="Zacznij od nowa" variant="ghost" onPress={onClose} />
+              <Button testID="streak-restore-button" title={t.streak.restoreButton} icon="play" onPress={restore} loading={restoring} />
+              <Button testID="streak-dismiss-button" title={t.streak.restartButton} variant="ghost" onPress={onClose} />
             </>
           ) : (
             <>
               <Ionicons name="flame" size={40} color="#FF8A00" />
               <Txt variant="title" style={{ textAlign: "center" }}>
-                {streak.count} {dayWord(streak.count)} z rzędu!
+                {t.streak.activeTitle(streak.count)}
               </Txt>
-              <Txt style={{ textAlign: "center" }}>
-                Najdłuższa seria: {streak.best} {dayWord(streak.best)}. Loguj się codziennie, aby ją utrzymać.
-              </Txt>
-              <Button testID="streak-close-button" title="Super, dzięki" onPress={onClose} />
+              <Txt style={{ textAlign: "center" }}>{t.streak.activeText(streak.best)}</Txt>
+              <Button testID="streak-close-button" title={t.streak.closeButton} onPress={onClose} />
             </>
           )}
         </PressableScale>

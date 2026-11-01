@@ -1,0 +1,41 @@
+{
+  "summary": "Reproduced the reported custom-career-goal bug on web preview (mobile viewport 390x844) with a brand-new test user. The MAIN reported symptom (app skipping the Career Detail card and jumping straight to a built roadmap) did NOT reproduce in two clean attempts: Career Detail screen (title/description/pros-cons/requirements + explicit 'Wybieram tę ścieżkę' button) always appeared first, and the roadmap was only built after the explicit tap, confirming the main agent's static code review. However, while setting up the repro I found and confirmed via live UI + DB inspection a DIFFERENT, real, reproducible race-condition bug in the same flow (see critical_code_review_comments/RCA) that can explain data-loss-like symptoms around custom careers. Caching/reuse on re-adding the exact same custom title was verified correct via direct API calls (same career_id reused, roadmap build became 'ready' in ~0.1s with created_at==updated_at to the same second — a clean cache-hit signature).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/recommendations/generate (background run_recommendations) vs POST /api/careers/custom",
+        "issue": "RACE CONDITION / silent data loss: run_recommendations() finishes by doing `$set` on the recommendations doc's `now`/`future` arrays filtered only by {user_id, job_id} — this REPLACES the whole arrays. If a user calls POST /careers/custom (which does `$push` onto `now`) while a recommendations-generation job is still in flight (e.g., right after finishing the onboarding quiz, or after re-generating recommendations via quiz edit / 'Już teraz' refresh), the custom career gets silently wiped out once the background job completes overwriting `now`. Reproduced live: registered a user, completed quiz (job started), immediately added a custom career 'Konserwator zabytkowych zegarow 9761' and chose it (watched 2 ads) -> POST /roadmap failed with 404 'Nie znaleziono zawodu' because by then the background job had finished and overwritten `now`, removing the custom entry. Confirmed via direct Mongo read: the custom career title was absent from `recommendations.now` after the background job's updated_at timestamp. This wastes the user's ad-watches and produces a confusing 404 with no clear recovery path.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Custom career goal -> choose path, when recommendations-generation race (above) occurs",
+        "issue": "User watches 2 ads (ROADMAP_AD_COUNT) via choose() in app/career/[id].tsx, then POST /roadmap 404s with 'Nie znaleziono zawodu' and no automatic recovery — the career card/detail screen that was just viewed is also gone from the list on next load since it was removed from recommendations.now server-side.",
+        "affected_testIDs": ["choose-path-button", "ad-modal", "choose-error"]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_custom_career_cache.py", "/app/test_reports/pytest/cache_reuse_results.xml"],
+  "action_items": [
+    "Fix the race condition: in run_roadmap/run_recommendations completion handlers, do not blanket `$set` the `now`/`future` arrays. Either (a) merge in any custom (`category: now`, has `qualifications` field) careers added after the job started, or (b) persist custom careers in a separate field/collection not touched by recommendations regeneration, or (c) guard the $set with a check that the recommendations doc hasn't been mutated by a custom-add since the job started (e.g., compare an updated_at/version stamp).",
+    "Confirmed NOT reproducible: Career Detail screen auto-skip / roadmap auto-build without explicit tap. No code or UI evidence found of this in 2 clean reproduction runs — recommend closing that specific part of the report as 'unable to reproduce' unless the real owner can share exact timing/steps (e.g., did she add the custom goal immediately after finishing/redoing the quiz, or tap 'Już teraz' refresh right before? That matches the race condition found above and could be the true root cause behind her confusing experience, even though the detail screen likely did appear briefly)."
+  ],
+  "critical_code_review_comments": [
+    "server.py run_recommendations(): the final `db.recommendations.update_one({user_id, job_id}, {'$set': {'now': ..., 'future': ...}})` pattern overwrites arrays that can be concurrently mutated by POST /careers/custom's `$push`. This is the root cause of the race condition described above.",
+    "career/[id].tsx choose(): ads are watched (and the cost incurred) BEFORE the POST /roadmap call is attempted; if that call 404s (e.g., due to the race above), the user has already paid the ad cost with no refund/retry path — consider validating career existence before charging ads, or offering a clear 'career no longer available' recovery state."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A - targeted bug reproduction, not full suite", "frontend": "N/A - targeted bug reproduction"},
+  "seed_data_creation": "Created several TEST_qa_* throwaway users during reproduction attempts (registered via UI, country=PL). Left one user (test_qa_1793529926@test.pl / Test1234) with a working cached custom-career roadmap 'Konserwator zabytkowych zegarow 9926' for any follow-up verification. Did not touch weronisia1987s@gmail.com or ania_t1@test.pl as instructed.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Reproduction steps for the race condition bug: 1) Register new user, select PL. 2) Complete quiz quickly (any answers) — quiz's next() calls POST /profile then POST /recommendations/generate (fire-and-forget, backend job takes ~5-15s in this env, documented as 'up to a minute' in UI). 3) IMMEDIATELY (within that window) navigate to 'Własny cel' and submit a new custom title, then immediately tap 'Wybieram tę ścieżkę' (watch the 2 ads). 4) POST /roadmap returns 404 'Nie znaleziono zawodu' because the background recommendations job finishes in between and overwrites recommendations.now, wiping the custom career. Verified directly in Mongo: recommendations.now lacked the custom title after the job's updated_at. If you wait for the 'AI analizuje...' banner to disappear (recommendations status=ready) BEFORE adding the custom career, the whole flow works perfectly: Career Detail shows first, roadmap only builds after explicit tap, and re-adding the same title after deleting reuses the same career_id and hits the cache (roadmap ready in ~0.1s, created_at==updated_at same second).",
+  "rca_of_issue": "Root cause: run_recommendations() (spawned background task from POST /recommendations/generate, triggered on quiz completion/regeneration) persists its AI result with a MongoDB `$set` that fully replaces the `now` and `future` arrays on the user's single `recommendations` document, filtered only by {user_id, job_id} — it does not account for concurrent `$push` operations from POST /careers/custom that may have added a custom career to `now` while the background job was still running. Because the custom-career push happens-before but the recommendations-job's overwrite happens-after (timing dependent), the custom career is silently lost. This is a classic lost-update race condition on a shared document field. It does NOT cause the roadmap to auto-build without the explicit button tap (that part of the report could not be reproduced), but it does cause a very similar-feeling bad experience: the custom career the user chose seems to vanish and trying to build its path fails with a confusing 404 after the user has already watched ads."
+}

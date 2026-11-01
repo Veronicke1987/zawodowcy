@@ -23,6 +23,7 @@ import re
 import secrets as pysecrets
 import uuid
 from pymongo.errors import DuplicateKeyError
+from pymongo import ReturnDocument
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -97,12 +98,14 @@ class UserDoc(BaseDocument):
     created_at: str
     premium: Optional[dict] = None
     streak: Optional[dict] = None
+    country: str = "PL"
 
 
 class Credentials(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=6, max_length=200)
     name: str = ""
+    country: Optional[str] = None
 
 
 class ForgotPasswordIn(BaseModel):
@@ -136,6 +139,10 @@ class DailyPlanSettingsIn(BaseModel):
     time_mode: str  # "daily" | "weekly"
     time_value: int = Field(gt=0, le=600)
     free_days: List[int] = Field(default_factory=list)  # 0=poniedziałek .. 6=niedziela
+
+
+class CountryIn(BaseModel):
+    country: str
 
 
 # ---------------------------------------------------------------- auth helpers
@@ -214,8 +221,9 @@ async def touch_streak(user: UserDoc) -> dict:
 async def public_user(u: UserDoc) -> dict:
     profile = await db.profiles.find_one({"user_id": u.id}, {"_id": 0, "user_id": 1})
     streak = await touch_streak(u)
+    country = u.country if u.country in COUNTRY_CONFIG else "PL"
     return {"id": u.id, "email": u.email, "name": u.name, "role": u.role, "has_profile": bool(profile),
-            "is_premium": bool(u.premium and u.premium.get("active")), "streak": streak,
+            "is_premium": bool(u.premium and u.premium.get("active")), "streak": streak, "country": country,
             "roadmap_generations_used": await roadmap_gen_used(u.id), "roadmap_generations_limit": PREMIUM_MONTHLY_GENERATIONS}
 
 
@@ -258,9 +266,125 @@ SYSTEM_PL = (
     "na pełne, sensowne zdanie w tym limicie, bez lania wody, ale też bez ucinania w połowie myśli."
 )
 
+# Country picker: language of generated AI content, local job-market context (job boards, the
+# equivalent of "urząd pracy"/labour office with its real schemes) and currency all follow this.
+COUNTRY_CONFIG = {
+    "PL": {"name": "Polska", "language_name": "polskim", "currency_fmt": "np. 6 000 – 8 500 zł brutto",
+           "job_portals": "Pracuj.pl, OLX Praca, LinkedIn, Indeed", "employment_agency": "Urząd Pracy (bon szkoleniowy, KFS, staż, dofinansowanie studiów podyplomowych)"},
+    "US": {"name": "USA", "language_name": "angielskim (amerykańska odmiana)", "currency_fmt": "e.g. $55,000 – $75,000 / year",
+           "job_portals": "LinkedIn, Indeed, ZipRecruiter, Glassdoor", "employment_agency": "state workforce agencies, e.g. CareerOneStop and WIOA-funded training programs"},
+    "GB": {"name": "Wielka Brytania", "language_name": "angielskim (brytyjska odmiana)", "currency_fmt": "e.g. £28,000 – £38,000 / year",
+           "job_portals": "LinkedIn, Indeed, Reed, TotalJobs", "employment_agency": "Jobcentre Plus and the National Careers Service (Skills Bootcamps funding)"},
+    "AU": {"name": "Australia", "language_name": "angielskim (australijska odmiana)", "currency_fmt": "e.g. A$65,000 – A$85,000 / year",
+           "job_portals": "SEEK, LinkedIn, Indeed", "employment_agency": "Services Australia / jobactive providers and Skills Checkpoint programs"},
+    "DE": {"name": "Niemcy", "language_name": "niemieckim", "currency_fmt": "z.B. 3.200 – 4.500 € brutto/Monat",
+           "job_portals": "LinkedIn, Indeed, StepStone, Xing", "employment_agency": "Agentur für Arbeit (Bildungsgutschein)"},
+    "NL": {"name": "Holandia", "language_name": "niderlandzkim", "currency_fmt": "bijv. €3.000 – €4.200 bruto/maand",
+           "job_portals": "LinkedIn, Indeed, Nationale Vacaturebank", "employment_agency": "UWV (STAP-budget)"},
+}
+
+
+def system_message(country: str) -> str:
+    cfg = COUNTRY_CONFIG.get(country) or COUNTRY_CONFIG["PL"]
+    if country == "PL" or country not in COUNTRY_CONFIG:
+        return SYSTEM_PL
+    return SYSTEM_PL + (
+        f" WAŻNE: mimo że powyższe instrukcje są po polsku, Twoja odpowiedź (cała treść w JSON) musi być CAŁKOWICIE napisana "
+        f"w języku {cfg['language_name']}, naturalnie jak dla native speakera — żadnego polskiego tekstu w odpowiedzi. "
+        f"Dopasuj WSZYSTKIE realia rynku pracy do kraju: {cfg['name']}. Oferty pracy i nazwy stanowisk jak na portalach "
+        f"{cfg['job_portals']}. Zamiast polskiego urzędu pracy/KFS/bonu szkoleniowego używaj lokalnego odpowiednika: "
+        f"{cfg['employment_agency']}. Widełki wynagrodzeń podawaj w lokalnej walucie, np. w formacie: {cfg['currency_fmt']}. "
+        f"NIGDY nie używaj złotówek ani polskich instytucji dla tego kraju."
+    )
+
 
 def profile_text(answers: dict) -> str:
     return json.dumps(answers, ensure_ascii=False, indent=1)
+
+
+# ---------------------------------------------------------------- shared AI-content cache
+# Career roadmaps, career descriptions and weekly study plans are expensive AI generations
+# that are, content-wise, the SAME for every user who picks the same career (in the same
+# country/language). Instead of paying for a fresh AI generation per user, we generate once,
+# persist the result keyed by (country, normalized title) in `career_templates`, and clone it
+# for every later user who picks that same career — only a small, cheap AI call (or none) is
+# then needed to personalize which steps that specific user already has done.
+def normalize_title(title: str) -> str:
+    return " ".join((title or "").strip().lower().split())
+
+
+def career_cache_key(title: str, country: str) -> str:
+    return f"{(country or 'PL').upper()}::{normalize_title(title)}"
+
+
+def clone_milestones(milestones: list) -> list:
+    """Deep-ish copy of a cached template's milestones for a brand-new user: same ids/content,
+    every task reset to NOT done (per-user progress is decided separately, see mark_done_tasks)."""
+    return [{**m, "tasks": [{**t, "done": False} for t in m.get("tasks", [])]} for m in milestones]
+
+
+def find_task_in_milestones(milestones: list, task_id: str) -> Optional[dict]:
+    for m in milestones:
+        for t in m.get("tasks", []):
+            if t["id"] == task_id:
+                return t
+    return None
+
+
+def qualifications_text_from_answers(answers: dict) -> str:
+    """Pulls out only the quiz fields relevant to 'what does this person already know/have',
+    used for the cheap already-done-marking call — never the full survey (mood/preferences etc.
+    don't matter for that decision)."""
+    keys = ["current_job", "education", "education_field", "certificates", "certificates_other",
+            "languages", "languages_level", "achievements",
+            "recznie_wskazane_stanowisko_docelowe", "kwalifikacje_do_tego_stanowiska"]
+    parts = []
+    for k in keys:
+        v = answers.get(k)
+        if not v:
+            continue
+        parts.append(f"{k}: {', '.join(v)}" if isinstance(v, list) else f"{k}: {v}")
+    return "; ".join(parts)
+
+
+async def mark_done_tasks(milestones: list, qualifications_text: str, country: str) -> set:
+    """Cheap, short follow-up call used only when a cached roadmap template is reused: given the
+    (already generated) task list and this specific user's qualifications, decide which task ids
+    they should already have ticked off — far smaller/cheaper than regenerating the whole path."""
+    if not qualifications_text.strip():
+        return set()
+    compact = [{"id": t["id"], "title": t.get("title", ""), "type": t.get("type", "other")}
+               for m in milestones for t in m.get("tasks", [])]
+    if not compact:
+        return set()
+    prompt = f"""Użytkownik ma już: {qualifications_text}
+Oto lista zadań do zdobycia na ścieżce kariery (id, tytuł, typ):
+{json.dumps(compact, ensure_ascii=False)}
+Które z tych zadań użytkownik już spełnia na podstawie posiadanych kwalifikacji/wykształcenia/doświadczenia? Zwróć TYLKO JSON:
+{{"done_ids": ["id1", "id2"]}}"""
+    try:
+        data = await ask_llm(FAST_MODEL, system_message(country), prompt)
+        valid_ids = {c["id"] for c in compact}
+        return {i for i in data.get("done_ids", []) if i in valid_ids}
+    except Exception:
+        logger.exception("mark_done_tasks failed")
+        return set()
+
+
+async def apply_cached_roadmap(user_id: str, job_id: str, milestones: list, qualifications_text: str, country: str):
+    """Fast path for a roadmap cache hit: no full generation, just a small done-marking call."""
+    try:
+        done_ids = await mark_done_tasks(milestones, qualifications_text, country)
+        for m in milestones:
+            for t in m.get("tasks", []):
+                if t["id"] in done_ids:
+                    t["done"] = True
+        await db.roadmaps.update_one({"user_id": user_id, "job_id": job_id},
+                                     {"$set": {"status": "ready", "milestones": milestones, "updated_at": now_iso()}})
+    except Exception as e:
+        logger.exception("apply_cached_roadmap failed")
+        await db.roadmaps.update_one({"user_id": user_id, "job_id": job_id},
+                                     {"$set": {"status": "error", "error": str(e)[:200]}})
 
 
 async def validate_profession(title: str) -> tuple[bool, str]:
@@ -464,8 +588,11 @@ async def register(data: Credentials):
     role = "admin" if email in ADMIN_EMAILS else "user"
     grant = await db.premium_grants.find_one({"email": email})
     premium = {"active": True, "plan": "gift", "since": now_iso(), "granted_by": grant.get("granted_by")} if grant else None
+    country = (data.country or "").strip().upper()
+    if country not in COUNTRY_CONFIG:
+        country = "PL"
     user = UserDoc(email=email, name=data.name.strip(), password_hash=hash_pw(data.password), role=role,
-                   premium=premium, created_at=now_iso())
+                   premium=premium, created_at=now_iso(), country=country)
     try:
         res = await db.users.insert_one(user.to_mongo())
     except DuplicateKeyError:
@@ -583,6 +710,21 @@ async def get_profile(user: UserDoc = Depends(current_user)):
     return doc or {"answers": None}
 
 
+@api.get("/account/countries")
+async def list_countries():
+    return {"countries": [{"code": c, "name": cfg["name"]} for c, cfg in COUNTRY_CONFIG.items()]}
+
+
+@api.patch("/account/country")
+async def set_country(data: CountryIn, user: UserDoc = Depends(current_user)):
+    code = (data.country or "").upper()
+    if code not in COUNTRY_CONFIG:
+        raise HTTPException(400, "Nieznany kraj.")
+    await db.users.update_one({"_id": ObjectId(user.id)}, {"$set": {"country": code}})
+    user = UserDoc.from_mongo(await db.users.find_one({"_id": ObjectId(user.id)}))
+    return await public_user(user)
+
+
 # ---------------------------------------------------------------- recommendations
 MODE_RULES = {
     "search": "TRYB: Szukam swojej drogi — proponuj zawody najlepiej dopasowane do umiejętności, zainteresowań i charakteru (także w obecnej branży).",
@@ -604,7 +746,7 @@ MODE_RULES = {
 }
 
 
-async def run_recommendations(user_id: str, answers: dict, job_id: str):
+async def run_recommendations(user_id: str, answers: dict, job_id: str, country: str = "PL"):
     # Compact JSON keys below (t/i/s/w/m/sa/d/r/g) exist purely to cut OUTPUT tokens: this call
     # repeats the same 9 fields across 10 career objects, so every character saved on field NAMES
     # (not content) is pure waste avoided x10. Mapped back to the real field names the app/DB use
@@ -629,7 +771,7 @@ Aby oszczędzić tokeny, użyj KRÓTKICH kluczy JSON dokładnie jak w przykładz
           "g": ["czego jeszcze brakuje, max 2 krótkie frazy"]}}],
  "future": [ ...ten sam format... ]}}"""
     try:
-        data = await ask_llm(ANALYSIS_MODEL, SYSTEM_PL, prompt)
+        data = await ask_llm(ANALYSIS_MODEL, system_message(country), prompt)
         key_map = {"t": "title", "i": "industry", "s": "summary", "w": "why", "m": "match",
                    "sa": "salary", "d": "demand", "r": "ai_risk", "g": "missing_skills"}
         for cat in ("now", "future"):
@@ -639,12 +781,18 @@ Aby oszczędzić tokeny, użyj KRÓTKICH kluczy JSON dokładnie jak w przykładz
                 full = {key_map.get(k, k): v for k, v in it.items()}
                 full["id"] = uuid.uuid4().hex[:12]
                 full["category"] = cat
+                full["country"] = country
                 expanded.append(full)
             data[cat] = expanded
+        # This job can take up to a minute. If the user added a custom career (POST /careers/custom)
+        # while it was still running, that career was $push-ed into "now" in the meantime — re-read
+        # it right before this overwrite and merge it back in, so this $set never silently wipes it out.
+        current = await db.recommendations.find_one({"user_id": user_id}, {"_id": 0, "now": 1})
+        custom_now = [c for c in (current or {}).get("now", []) if c.get("custom")]
         await db.recommendations.update_one(
             {"user_id": user_id, "job_id": job_id},
-            {"$set": {"status": "ready", "mode": answers.get("reset_mode") or "search", "summary": data.get("summary", ""), "now": data["now"],
-                      "future": data["future"], "updated_at": now_iso()}},
+            {"$set": {"status": "ready", "mode": answers.get("reset_mode") or "search", "summary": data.get("summary", ""),
+                      "now": custom_now + data["now"], "future": data["future"], "updated_at": now_iso()}},
         )
     except Exception as e:
         logger.exception("recommendations failed")
@@ -659,10 +807,10 @@ async def generate_recommendations(user: UserDoc = Depends(current_user)):
     job_id = uuid.uuid4().hex
     await db.recommendations.update_one(
         {"user_id": user.id},
-        {"$set": {"user_id": user.id, "status": "pending", "job_id": job_id, "started_at": now_iso()}},
+        {"$set": {"user_id": user.id, "status": "pending", "job_id": job_id, "started_at": now_iso(), "country": user.country}},
         upsert=True,
     )
-    spawn(run_recommendations(user.id, prof["answers"], job_id))
+    spawn(run_recommendations(user.id, prof["answers"], job_id, user.country))
     return {"status": "pending"}
 
 
@@ -684,21 +832,22 @@ async def expire_stale(coll, user_id: str, doc: dict) -> bool:
     return True
 
 
-async def find_career(user_id: str, career_id: str) -> dict:
+async def find_career(user_id: str, career_id: str) -> tuple[dict, str]:
     doc = await db.recommendations.find_one({"user_id": user_id}, {"_id": 0})
     if doc:
         for it in (doc.get("now") or []) + (doc.get("future") or []):
             if it["id"] == career_id:
-                return it
+                return it, it.get("country") or doc.get("country") or "PL"
     raise HTTPException(404, "Nie znaleziono zawodu.")
 
 
 @api.get("/careers/{career_id}")
 async def career_detail(career_id: str, user: UserDoc = Depends(current_user)):
-    career = await find_career(user.id, career_id)
-    cached = await db.career_details.find_one({"user_id": user.id, "career_id": career_id}, {"_id": 0})
-    if cached:
-        return {"career": career, "detail": cached["detail"], "job_links": job_links(career["title"])}
+    career, country = await find_career(user.id, career_id)
+    cache_key = career_cache_key(career["title"], country)
+    tmpl = await db.career_templates.find_one({"_id": cache_key}, {"_id": 0, "detail": 1})
+    if tmpl and tmpl.get("detail"):
+        return {"career": career, "detail": tmpl["detail"], "job_links": job_links(career["title"])}
     prompt = f"""To jest odrębne, samodzielne zapytanie — dotyczy WYŁĄCZNIE poniższego jednego zawodu, nie odwołuj się do innych zawodów ani wcześniejszych rozmów.
 Zawód: {career['title']} (branża: {career.get('industry', '')}).
 
@@ -715,13 +864,14 @@ jednej konkretnej uczelni jako jedynej słusznej drogi. Zwróć JSON:
  "how_to_start": ["5-6 konkretnych, nazwanych z imienia kroków, każdy pełnym zdaniem (ok. 15-20 słów) z kontekstem (kursy/platformy/programy urzędu pracy z nazwy, a dla studiów: kierunek + kilka przykładowych uczelni)"],
  "career_levels": ["4-5 kolejnych, REALNYCH, oficjalnie istniejących w Polsce stanowisk/stopni awansu w TYM KONKRETNYM zawodzie, od wejściowego do najwyższego — np. dla nauczyciela: nauczyciel stażysta, kontraktowy, mianowany, dyplomowany, wicedyrektor, dyrektor szkoły; dla programisty: junior, mid, senior, lead, CTO. NIE wymyślaj nazw stanowisk, których nie ma w tym zawodzie — jeśli nie masz pewności, użyj najbardziej powszechnie znanej, rzeczywistej struktury awansu."]}}"""
     try:
-        detail = await ask_llm(FAST_MODEL, SYSTEM_PL, prompt)
+        detail = await ask_llm(FAST_MODEL, system_message(country), prompt)
     except Exception:
         logger.exception("detail failed")
         raise HTTPException(502, "Nie udało się przygotować opisu. Spróbuj ponownie.")
-    await db.career_details.update_one(
-        {"user_id": user.id, "career_id": career_id},
-        {"$set": {"detail": detail, "created_at": now_iso()}},
+    await db.career_templates.update_one(
+        {"_id": cache_key},
+        {"$set": {"title": career["title"], "country": country, "detail": detail, "updated_at": now_iso()},
+         "$setOnInsert": {"created_at": now_iso()}},
         upsert=True,
     )
     return {"career": career, "detail": detail, "job_links": job_links(career["title"])}
@@ -798,7 +948,7 @@ async def get_path(user_id: str, path_id: Optional[str] = None, projection: Opti
     return doc
 
 
-async def run_roadmap(user_id: str, career: dict, answers: dict, job_id: str):
+async def run_roadmap(user_id: str, career: dict, answers: dict, job_id: str, country: str = "PL", cache_key: Optional[str] = None):
     prompt = f"""Użytkownik wybrał ścieżkę kariery: {career['title']} (branża: {career.get('industry', '')}).
 Profil użytkownika: {profile_text(answers)}
 
@@ -817,7 +967,7 @@ Zwróć JSON:
    "tasks": [{{"title": "krótka nazwa zadania", "description": "1 pełne zdanie (ok. 15-20 słów) — co dokładnie trzeba zrobić i jak to zdobyć",
               "type": "studies|course|skill|certificate|language|license|experience|other", "already_has": false}}]}}]}}"""
     try:
-        data = await ask_llm(ANALYSIS_MODEL, SYSTEM_PL, prompt)
+        data = await ask_llm(ANALYSIS_MODEL, system_message(country), prompt)
         milestones = []
         for m in data.get("milestones", []):
             m["id"] = uuid.uuid4().hex[:10]
@@ -828,6 +978,16 @@ Zwróć JSON:
             m["tasks"] = tasks
             milestones.append(m)
         await db.roadmaps.update_one({"user_id": user_id, "job_id": job_id}, {"$set": {"status": "ready", "milestones": milestones, "updated_at": now_iso()}})
+        if cache_key:
+            # Persist the generated structure as the shared template for every future user who
+            # picks this exact career (strip this user's personal done-flags — those are decided
+            # per-user by mark_done_tasks on reuse).
+            await db.career_templates.update_one(
+                {"_id": cache_key},
+                {"$set": {"title": career["title"], "country": country, "milestones": clone_milestones(milestones), "updated_at": now_iso()},
+                 "$setOnInsert": {"created_at": now_iso()}},
+                upsert=True,
+            )
     except Exception as e:
         logger.exception("roadmap failed")
         await db.roadmaps.update_one({"user_id": user_id, "job_id": job_id}, {"$set": {"status": "error", "error": str(e)[:200]}})
@@ -835,10 +995,10 @@ Zwróć JSON:
 
 @api.post("/roadmap")
 async def choose_path(data: RoadmapIn, user: UserDoc = Depends(current_user)):
-    career = await find_career(user.id, data.career_id)
+    career, path_country = await find_career(user.id, data.career_id)
     await db.roadmaps.delete_many({"user_id": user.id, "status": "error"})
     existing = await db.roadmaps.find({"user_id": user.id}, {"_id": 0, "path_id": 1, "career": 1, "status": 1}).to_list(100)
-    same = next((d for d in existing if d["career"]["title"] == career["title"] and d.get("status") != "error"), None)
+    same = next((d for d in existing if d["career"]["title"].strip().lower() == career["title"].strip().lower() and d.get("status") != "error"), None)
     if same:
         await db.roadmaps.update_many({"user_id": user.id}, {"$set": {"active": False}})
         await db.roadmaps.update_one({"user_id": user.id, "path_id": same["path_id"]}, {"$set": {"active": True}})
@@ -846,53 +1006,57 @@ async def choose_path(data: RoadmapIn, user: UserDoc = Depends(current_user)):
     if len(existing) >= PREMIUM_PATH_LIMIT:
         raise HTTPException(403, f"Masz już {PREMIUM_PATH_LIMIT} ścieżki. Usuń jedną w zakładce Droga, aby dodać nową.")
     prof = await db.profiles.find_one({"user_id": user.id}) or {}
+    answers = prof.get("answers", {})
+    # Careers proposed via "Własny zawód" carry their own typed qualifications instead of quiz answers.
+    custom_qualifications = career.get("qualifications")
+    if custom_qualifications is not None:
+        answers = {**answers, "recznie_wskazane_stanowisko_docelowe": career["title"],
+                   "kwalifikacje_do_tego_stanowiska": custom_qualifications or "Użytkownik nie ma jeszcze żadnych kwalifikacji ani doświadczenia w tym kierunku — zaczyna od zera."}
     job_id = uuid.uuid4().hex
     path_id = uuid.uuid4().hex[:12]
     await db.roadmaps.update_many({"user_id": user.id}, {"$set": {"active": False}})
     await db.roadmaps.insert_one({"user_id": user.id, "path_id": path_id, "active": True, "career": career, "status": "pending",
-                                  "job_id": job_id, "milestones": [], "started_at": now_iso(), "created_at": now_iso()})
-    await bump_roadmap_gen(user.id)
-    spawn(run_roadmap(user.id, career, prof.get("answers", {}), job_id))
+                                  "job_id": job_id, "milestones": [], "country": path_country, "started_at": now_iso(), "created_at": now_iso()})
+    cache_key = career_cache_key(career["title"], path_country)
+    template = await db.career_templates.find_one({"_id": cache_key}, {"_id": 0, "milestones": 1})
+    if template and template.get("milestones"):
+        qualifications_text = custom_qualifications if custom_qualifications is not None else qualifications_text_from_answers(answers)
+        spawn(apply_cached_roadmap(user.id, job_id, clone_milestones(template["milestones"]), qualifications_text, path_country))
+    else:
+        await bump_roadmap_gen(user.id)
+        spawn(run_roadmap(user.id, career, answers, job_id, path_country, cache_key))
     return {"status": "pending", "path_id": path_id}
 
 
-@api.post("/roadmap/custom")
-async def choose_custom_path(data: CustomPathIn, user: UserDoc = Depends(current_user)):
-    """Lets a user skip the profiling quiz entirely: they type the exact position they
-    want and (optionally) their current qualifications for it, and AI builds the roadmap
-    straight away, the same way it does for a quiz-suggested career."""
+@api.post("/careers/custom")
+async def propose_custom_career(data: CustomPathIn, user: UserDoc = Depends(current_user)):
+    """Lets a user skip the profiling quiz entirely by typing the exact position they want
+    (and, optionally, their current qualifications for it). This adds it to their career list —
+    the same place quiz-suggested careers live — so they review it and explicitly build the path
+    from there, exactly like any other suggested career, instead of jumping straight to a roadmap."""
     title = data.title.strip()
     if not title:
         raise HTTPException(400, "Podaj nazwę stanowiska.")
     valid, reason = await validate_profession(title)
     if not valid:
         raise HTTPException(400, reason or f"„{title}” nie jest prawidłowym, legalnym zawodem. Wpisz prawdziwe stanowisko pracy.")
-    await db.roadmaps.delete_many({"user_id": user.id, "status": "error"})
-    existing = await db.roadmaps.find({"user_id": user.id}, {"_id": 0, "path_id": 1, "career": 1, "status": 1}).to_list(100)
-    same = next((d for d in existing if d["career"]["title"].strip().lower() == title.lower() and d.get("status") != "error"), None)
-    if same:
-        await db.roadmaps.update_many({"user_id": user.id}, {"$set": {"active": False}})
-        await db.roadmaps.update_one({"user_id": user.id, "path_id": same["path_id"]}, {"$set": {"active": True}})
-        return {"status": same["status"], "path_id": same["path_id"], "existing": True}
-    if len(existing) >= PREMIUM_PATH_LIMIT:
-        raise HTTPException(403, f"Masz już {PREMIUM_PATH_LIMIT} ścieżki. Usuń jedną w zakładce Droga, aby dodać nową.")
-    career = {"id": uuid.uuid4().hex[:12], "title": title, "industry": "", "summary": "Twój własny cel zawodowy.",
-              "why": "", "match": 100, "category": "now"}
-    prof = await db.profiles.find_one({"user_id": user.id}) or {}
     qualifications = data.qualifications.strip()
-    answers = {
-        **prof.get("answers", {}),
-        "recznie_wskazane_stanowisko_docelowe": title,
-        "kwalifikacje_do_tego_stanowiska": qualifications or "Użytkownik nie ma jeszcze żadnych kwalifikacji ani doświadczenia w tym kierunku — zaczyna od zera.",
-    }
-    job_id = uuid.uuid4().hex
-    path_id = uuid.uuid4().hex[:12]
-    await db.roadmaps.update_many({"user_id": user.id}, {"$set": {"active": False}})
-    await db.roadmaps.insert_one({"user_id": user.id, "path_id": path_id, "active": True, "career": career, "status": "pending",
-                                  "job_id": job_id, "milestones": [], "started_at": now_iso(), "created_at": now_iso()})
-    await bump_roadmap_gen(user.id)
-    spawn(run_roadmap(user.id, career, answers, job_id))
-    return {"status": "pending", "path_id": path_id}
+    doc = await db.recommendations.find_one({"user_id": user.id}, {"_id": 0, "now": 1})
+    existing = next((it for it in (doc or {}).get("now", []) if it.get("title", "").strip().lower() == title.lower()), None)
+    if existing:
+        await db.recommendations.update_one(
+            {"user_id": user.id, "now.id": existing["id"]},
+            {"$set": {"now.$.qualifications": qualifications, "now.$.country": user.country}},
+        )
+        return {"career_id": existing["id"]}
+    career = {"id": uuid.uuid4().hex[:12], "title": title, "industry": "", "summary": "Twój własny cel zawodowy.",
+              "why": "", "match": 100, "category": "now", "country": user.country, "qualifications": qualifications, "custom": True}
+    await db.recommendations.update_one(
+        {"user_id": user.id},
+        {"$push": {"now": career}, "$setOnInsert": {"user_id": user.id, "status": "ready", "summary": "", "future": [], "country": user.country}},
+        upsert=True,
+    )
+    return {"career_id": career["id"]}
 
 
 @api.get("/roadmap")
@@ -968,6 +1132,13 @@ async def task_resources(task_id: str, user: UserDoc = Depends(current_user)):
     if not doc:
         raise HTTPException(404, "Nie znaleziono zadania.")
     _, _, milestone, task = locate_task(doc, task_id)
+    path_country = doc.get("country") or user.country
+    cache_key = career_cache_key(doc["career"]["title"], path_country)
+    tmpl = await db.career_templates.find_one({"_id": cache_key, "milestones.tasks.id": task_id}, {"_id": 0, "milestones": 1})
+    if tmpl:
+        tmpl_task = find_task_in_milestones(tmpl.get("milestones", []), task_id)
+        if tmpl_task and tmpl_task.get("resources"):
+            return tmpl_task["resources"]
     if task.get("resources"):
         return task["resources"]
     prof = await db.profiles.find_one({"user_id": user.id}) or {}
@@ -1001,7 +1172,7 @@ Zwróć JSON:
                 "query": "fraza wyszukiwania po polsku"}}]}}
 Podaj 5-8 zasobów, w tym przynajmniej jeden YouTube i jeden urzad_pracy."""
     try:
-        data = await ask_llm(FAST_MODEL, SYSTEM_PL, prompt)
+        data = await ask_llm(FAST_MODEL, system_message(path_country), prompt)
     except Exception:
         logger.exception("resources failed")
         raise HTTPException(502, "Nie udało się przygotować podpowiedzi. Spróbuj ponownie.")
@@ -1012,21 +1183,40 @@ Podaj 5-8 zasobów, w tym przynajmniej jeden YouTube i jeden urzad_pracy."""
         {"$set": {"milestones.$[].tasks.$[t].resources": data}},
         array_filters=[{"t.id": task_id}],
     )
+    await db.career_templates.update_one(
+        {"_id": cache_key, "milestones.tasks.id": task_id},
+        {"$set": {"milestones.$[].tasks.$[t].resources": data}},
+        array_filters=[{"t.id": task_id}],
+    )
     return data
 
 
-# ---------------------------------------------------------------- weekly study plan (premium)
-async def run_study_plan(user_id: str, path_id: str, job_id: str):
-    doc = await db.roadmaps.find_one({"user_id": user_id, "path_id": path_id})
-    prof = await db.profiles.find_one({"user_id": user_id}) or {}
-    answers = prof.get("answers", {})
-    todo = [f"- [{m['title']}] {t['title']}: {t['description']}" for m in doc.get("milestones", []) for t in m["tasks"] if not t.get("done")]
-    done = [t["title"] for m in doc.get("milestones", []) for t in m["tasks"] if t.get("done")]
-    prompt = f"""Ścieżka kariery: {doc['career']['title']}.
-Czas, który użytkownik może poświęcić na naukę: {answers.get('learn_time', 'nie podano')}. Obecna sytuacja: {answers.get('current_status', '')}.
-Już zdobyte: {', '.join(done) or 'nic'}.
-Do zdobycia (w kolejności drogi):
-{chr(10).join(todo[:20]) or '- wszystko zdobyte, zaplanuj szukanie pracy i rozwój'}
+# ---------------------------------------------------------------- weekly study plan (shared
+# per-career cache, 8-week "blocks", checkable items — available to free users via one ad)
+def pending_signature(milestones: list) -> tuple[str, list]:
+    """The weekly plan's content only really depends on what's still left to do — not on which
+    specific user is asking. Signature = the next (up to) 2 not-done tasks, in path order; every
+    user who reaches the same point on the same shared career path gets the same cached plan."""
+    pending = []
+    for m in milestones:
+        for t in m.get("tasks", []):
+            if not t.get("done"):
+                pending.append({"id": t["id"], "title": t.get("title", ""), "description": t.get("description", ""),
+                                 "milestone_title": m.get("title", "")})
+    sig = "_".join(p["id"] for p in pending[:2]) or "complete"
+    return sig, pending[:2]
+
+
+def weekly_plan_context(career_title: str, pending: list) -> str:
+    todo = "\n".join(f"- [{p['milestone_title']}] {p['title']}: {p['description']}" for p in pending)
+    return f"""Ścieżka kariery: {career_title}.
+Najbliższe punkty do zdobycia (w kolejności drogi):
+{todo or '- wszystko zdobyte, zaplanuj szukanie pracy i rozwój'}
+Załóż przeciętne możliwości czasowe osoby uczącej się po godzinach (ok. 5-10h/tydzień)."""
+
+
+async def generate_weekly_plan_ai(context: str, country: str) -> dict:
+    prompt = f"""{context}
 
 Ułóż realistyczny plan nauki na 8 tygodni, skupiony na najbliższych punktach drogi. Każdy tydzień: cel i 3-5 konkretnych zadań z liczbą godzin.
 Uwzględnij darmowe materiały, kursy z urzędu pracy, ćwiczenia praktyczne i budowanie portfolio/CV. Nie wymyślaj konkretnych, brzmiących oficjalnie
@@ -1037,27 +1227,82 @@ Zwróć JSON:
  "weeks": [{{"week": 1, "focus": "temat tygodnia", "goal": "1 pełne zdanie (ok. 15-20 słów) — co umiesz po tygodniu",
             "items": [{{"title": "zadanie", "description": "1 pełne zdanie (ok. 15-20 słów) — jak dokładnie to zrobić, z konkretami", "hours": liczba}}]}}],
  "tips": ["3 rady motywacyjne/organizacyjne, pełne zdania (ok. 12-16 słów)"]}}"""
+    plan = await ask_llm(ANALYSIS_MODEL, system_message(country), prompt)
+    for w in plan.get("weeks", []):
+        for it in w.get("items", []):
+            it["id"] = uuid.uuid4().hex[:10]
+            it["done"] = False
+    return plan
+
+
+def clone_weekly_plan(plan: dict) -> dict:
+    return {**plan, "weeks": [{**w, "items": [{**it, "done": False} for it in w.get("items", [])]} for w in plan.get("weeks", [])]}
+
+
+WEEKLY_PLAN_REFRESH_EVERY = 4  # every Nth time a given (career, pending-signature) combo is requested, regenerate via AI and overwrite the cache, instead of serving it forever
+
+
+async def get_or_build_weekly_plan(cache_key: str, sig: str, career_title: str, pending: list, country: str) -> dict:
+    field = f"weekly_plans.{sig}"
+    res = await db.career_templates.find_one_and_update(
+        {"_id": cache_key},
+        {"$inc": {f"{field}.hits": 1}, "$set": {"title": career_title, "country": country, "updated_at": now_iso()},
+         "$setOnInsert": {"created_at": now_iso()}},
+        upsert=True, return_document=ReturnDocument.AFTER,
+    )
+    entry = (res.get("weekly_plans") or {}).get(sig) or {}
+    hits = entry.get("hits", 1)
+    cached_plan = entry.get("plan")
+    if cached_plan and hits % WEEKLY_PLAN_REFRESH_EVERY != 0:
+        return clone_weekly_plan(cached_plan)
+    plan = await generate_weekly_plan_ai(weekly_plan_context(career_title, pending), country)
+    await db.career_templates.update_one({"_id": cache_key}, {"$set": {f"{field}.plan": plan}})
+    return clone_weekly_plan(plan)
+
+
+async def run_study_block(user_id: str, path_id: str, job_id: str, career_title: str, sig: str, pending: list, country: str):
     try:
-        plan = await ask_llm(ANALYSIS_MODEL, SYSTEM_PL, prompt)
-        await db.roadmaps.update_one({"user_id": user_id, "path_id": path_id, "study_plan.job_id": job_id},
-                                     {"$set": {"study_plan.status": "ready", "study_plan.plan": plan, "study_plan.updated_at": now_iso()}})
+        cache_key = career_cache_key(career_title, country)
+        plan = await get_or_build_weekly_plan(cache_key, sig, career_title, pending, country)
+        await db.roadmaps.update_one({"user_id": user_id, "path_id": path_id, "study_plan.blocks.job_id": job_id},
+                                     {"$set": {"study_plan.blocks.$.status": "ready", "study_plan.blocks.$.plan": plan, "study_plan.blocks.$.updated_at": now_iso()}})
     except Exception as e:
-        logger.exception("study plan failed")
-        await db.roadmaps.update_one({"user_id": user_id, "path_id": path_id, "study_plan.job_id": job_id},
-                                     {"$set": {"study_plan.status": "error", "study_plan.error": str(e)[:200]}})
+        logger.exception("study block failed")
+        await db.roadmaps.update_one({"user_id": user_id, "path_id": path_id, "study_plan.blocks.job_id": job_id},
+                                     {"$set": {"study_plan.blocks.$.status": "error", "study_plan.blocks.$.error": str(e)[:200]}})
 
 
 @api.post("/roadmap/study-plan")
 async def create_study_plan(path_id: Optional[str] = None, user: UserDoc = Depends(current_user)):
-    if not is_premium(user):
-        raise HTTPException(403, "Plan tygodniowy to funkcja Premium. Przejdź na Premium, aby go odblokować.")
-    doc = await get_path(user.id, path_id, {"_id": 0, "path_id": 1, "status": 1})
+    # Weekly plan is available to free users too (gated by a rewarded ad on the client side,
+    # skipped automatically for Premium); its content persists in a shared DB cache once generated.
+    doc = await get_path(user.id, path_id, {"_id": 0, "path_id": 1, "status": 1, "career": 1, "milestones": 1, "study_plan": 1, "country": 1})
     if not doc or doc["status"] != "ready":
         raise HTTPException(400, "Najpierw wybierz ścieżkę i poczekaj, aż droga będzie gotowa.")
+    if (doc.get("study_plan") or {}).get("blocks"):
+        raise HTTPException(400, "Plan tygodniowy już istnieje.")
     job_id = uuid.uuid4().hex
-    await db.roadmaps.update_one({"user_id": user.id, "path_id": doc["path_id"]},
-                                 {"$set": {"study_plan": {"status": "pending", "job_id": job_id, "started_at": now_iso()}}})
-    spawn(run_study_plan(user.id, doc["path_id"], job_id))
+    sig, pending = pending_signature(doc.get("milestones", []))
+    block = {"index": 0, "status": "pending", "job_id": job_id, "pending_sig": sig, "started_at": now_iso()}
+    await db.roadmaps.update_one({"user_id": user.id, "path_id": doc["path_id"]}, {"$set": {"study_plan.blocks": [block]}})
+    spawn(run_study_block(user.id, doc["path_id"], job_id, doc["career"]["title"], sig, pending, doc.get("country") or user.country))
+    return {"status": "pending"}
+
+
+@api.post("/roadmap/study-plan/next-block")
+async def create_next_study_block(path_id: Optional[str] = None, user: UserDoc = Depends(current_user)):
+    doc = await get_path(user.id, path_id, {"_id": 0, "path_id": 1, "career": 1, "milestones": 1, "study_plan": 1, "country": 1})
+    blocks = (doc or {}).get("study_plan", {}).get("blocks") or []
+    if not blocks:
+        raise HTTPException(400, "Najpierw ułóż plan tygodniowy.")
+    if any(b.get("status") == "pending" for b in blocks):
+        return {"status": "pending"}
+    next_index = len(blocks)
+    job_id = uuid.uuid4().hex
+    sig, pending = pending_signature(doc.get("milestones", []))
+    block = {"index": next_index, "status": "pending", "job_id": job_id, "pending_sig": sig, "started_at": now_iso()}
+    await db.roadmaps.update_one({"user_id": user.id, "path_id": doc["path_id"]}, {"$push": {"study_plan.blocks": block}})
+    spawn(run_study_block(user.id, doc["path_id"], job_id, doc["career"]["title"], sig, pending, doc.get("country") or user.country))
     return {"status": "pending"}
 
 
@@ -1066,11 +1311,27 @@ async def get_study_plan(path_id: Optional[str] = None, user: UserDoc = Depends(
     doc = await get_path(user.id, path_id, {"_id": 0, "study_plan": 1, "career": 1, "path_id": 1})
     if not doc:
         return {"status": "none", "is_premium": is_premium(user)}
-    sp = doc.get("study_plan") or {"status": "none"}
-    if sp.get("status") == "pending" and datetime.now(timezone.utc) - datetime.fromisoformat(sp["started_at"]) > timedelta(minutes=4):
-        sp["status"] = "error"
-    return {"status": sp.get("status"), "plan": sp.get("plan"), "career": doc.get("career"), "path_id": doc["path_id"],
-            "is_premium": is_premium(user)}
+    blocks = (doc.get("study_plan") or {}).get("blocks") or []
+    if not blocks:
+        return {"status": "none", "career": doc.get("career"), "path_id": doc["path_id"], "is_premium": is_premium(user)}
+    for b in blocks:
+        if b.get("status") == "pending" and b.get("started_at") and datetime.now(timezone.utc) - datetime.fromisoformat(b["started_at"]) > timedelta(minutes=4):
+            b["status"] = "error"
+    last = blocks[-1]
+    return {"status": last["status"], "blocks": blocks, "can_generate_next": last["status"] == "ready",
+            "career": doc.get("career"), "path_id": doc["path_id"], "is_premium": is_premium(user)}
+
+
+@api.patch("/roadmap/study-plan/items/{item_id}")
+async def toggle_study_item(item_id: str, data: TaskToggle, path_id: Optional[str] = None, user: UserDoc = Depends(current_user)):
+    q: dict = {"user_id": user.id, "study_plan.blocks.plan.weeks.items.id": item_id}
+    if path_id:
+        q["path_id"] = path_id
+    res = await db.roadmaps.update_one(
+        q, {"$set": {"study_plan.blocks.$[].plan.weeks.$[].items.$[it].done": data.done}}, array_filters=[{"it.id": item_id}])
+    if not res.matched_count:
+        raise HTTPException(404, "Nie znaleziono punktu planu.")
+    return {"ok": True, "done": data.done}
 
 
 # ---------------------------------------------------------------- daily plan (free + premium)
@@ -1083,7 +1344,7 @@ def week_unlock_day(week_start: date) -> date:
     return week_start + timedelta(days=5)
 
 
-async def run_daily_plan(user_id: str, path_id: str, job_id: str, week_index: int, week_start: date, premium: bool, is_next: bool = False):
+async def run_daily_plan(user_id: str, path_id: str, job_id: str, week_index: int, week_start: date, premium: bool, is_next: bool = False, country: str = "PL"):
     doc = await db.roadmaps.find_one({"user_id": user_id, "path_id": path_id})
     settings = (doc.get("daily_plan") or {}).get("settings", {})
     free_days = {d for d in settings.get("free_days", []) if 0 <= d <= 6}
@@ -1129,7 +1390,7 @@ Zwróć JSON z polem "weekday" = numer dnia tygodnia zgodnie z datami powyżej (
     status_field = "daily_plan.next_status" if is_next else "daily_plan.status"
     job_field = "daily_plan.next_job_id" if is_next else "daily_plan.job_id"
     try:
-        data = await ask_llm(ANALYSIS_MODEL, SYSTEM_PL, prompt)
+        data = await ask_llm(ANALYSIS_MODEL, system_message(country), prompt)
         by_weekday = {d.get("weekday"): d.get("items", []) for d in data.get("days", [])}
         study_pos = 0
         days_out = []
@@ -1157,9 +1418,11 @@ Zwróć JSON z polem "weekday" = numer dnia tygodnia zgodnie z datami powyżej (
 
 @api.post("/roadmap/daily-plan/settings")
 async def set_daily_plan_settings(data: DailyPlanSettingsIn, path_id: Optional[str] = None, user: UserDoc = Depends(current_user)):
+    if not is_premium(user):
+        raise HTTPException(403, "Plan dzienny to funkcja Premium. Przejdź na Premium, aby go odblokować.")
     if data.time_mode not in ("daily", "weekly"):
         raise HTTPException(400, "Nieprawidłowy tryb czasu.")
-    doc = await get_path(user.id, path_id, {"_id": 0, "path_id": 1, "status": 1})
+    doc = await get_path(user.id, path_id, {"_id": 0, "path_id": 1, "status": 1, "country": 1})
     if not doc or doc["status"] != "ready":
         raise HTTPException(400, "Najpierw wybierz ścieżkę i poczekaj, aż droga będzie gotowa.")
     free_days = sorted({d for d in data.free_days if 0 <= d <= 6})
@@ -1172,13 +1435,15 @@ async def set_daily_plan_settings(data: DailyPlanSettingsIn, path_id: Optional[s
     week_start = date.today()
     await db.roadmaps.update_one({"user_id": user.id, "path_id": doc["path_id"]},
                                  {"$set": {"daily_plan": {"settings": settings, "status": "pending", "job_id": job_id, "weeks": [], "started_at": now_iso()}}})
-    spawn(run_daily_plan(user.id, doc["path_id"], job_id, 0, week_start, is_premium(user)))
+    spawn(run_daily_plan(user.id, doc["path_id"], job_id, 0, week_start, is_premium(user), country=doc.get("country") or user.country))
     return {"status": "pending"}
 
 
 @api.post("/roadmap/daily-plan/next-week")
 async def generate_next_week(path_id: Optional[str] = None, user: UserDoc = Depends(current_user)):
-    doc = await get_path(user.id, path_id, {"_id": 0, "path_id": 1, "daily_plan": 1})
+    if not is_premium(user):
+        raise HTTPException(403, "Plan dzienny to funkcja Premium. Przejdź na Premium, aby go odblokować.")
+    doc = await get_path(user.id, path_id, {"_id": 0, "path_id": 1, "daily_plan": 1, "country": 1})
     dp = (doc or {}).get("daily_plan")
     if not dp or dp.get("status") != "ready" or not dp.get("weeks"):
         raise HTTPException(400, "Najpierw ułóż plan dzienny.")
@@ -1194,7 +1459,7 @@ async def generate_next_week(path_id: Optional[str] = None, user: UserDoc = Depe
     job_id = uuid.uuid4().hex
     await db.roadmaps.update_one({"user_id": user.id, "path_id": doc["path_id"]},
                                  {"$set": {"daily_plan.next_status": "pending", "daily_plan.next_job_id": job_id, "daily_plan.next_started_at": now_iso()}})
-    spawn(run_daily_plan(user.id, doc["path_id"], job_id, next_index, last_start + timedelta(days=7), is_premium(user), is_next=True))
+    spawn(run_daily_plan(user.id, doc["path_id"], job_id, next_index, last_start + timedelta(days=7), is_premium(user), is_next=True, country=doc.get("country") or user.country))
     return {"status": "pending"}
 
 
@@ -1297,7 +1562,7 @@ Zwróć JSON:
                 "query": "fraza wyszukiwania po polsku"}}]}}
 Podaj 4-6 zasob\u00f3w, w tym przynajmniej jeden YouTube."""
     try:
-        data = await ask_llm(FAST_MODEL, SYSTEM_PL, prompt)
+        data = await ask_llm(FAST_MODEL, system_message(doc.get("country") or user.country), prompt)
     except Exception:
         logger.exception("daily item resources failed")
         raise HTTPException(502, "Nie udało się przygotować podpowiedzi. Spróbuj ponownie.")

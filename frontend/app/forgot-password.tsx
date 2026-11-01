@@ -14,7 +14,7 @@ export default function ForgotPassword() {
   const styles = useStyles();
   const { colors } = useTheme();
   const router = useRouter();
-  const { completeAuth } = useAuth();
+  const { completeAuth, t } = useAuth();
   const [step, setStep] = useState<"email" | "reset">("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -25,7 +25,7 @@ export default function ForgotPassword() {
 
   const requestCode = async () => {
     setError("");
-    if (!email.includes("@")) return setError("Podaj poprawny adres e-mail.");
+    if (!email.includes("@")) return setError(t.forgotPassword.invalidEmail);
     setLoading(true);
     try {
       const res = await api<{ message: string }>("/auth/forgot-password", { method: "POST", body: { email: email.trim() } });
@@ -40,8 +40,8 @@ export default function ForgotPassword() {
 
   const resetPassword = async () => {
     setError("");
-    if (code.trim().length !== 6) return setError("Kod ma 6 cyfr. Sprawdź wiadomość e-mail.");
-    if (newPassword.length < 6) return setError("Nowe hasło musi mieć co najmniej 6 znaków.");
+    if (code.trim().length !== 6) return setError(t.forgotPassword.invalidCode);
+    if (newPassword.length < 6) return setError(t.forgotPassword.shortPassword);
     setLoading(true);
     try {
       const res = await api<any>("/auth/reset-password", { method: "POST", body: { email: email.trim(), code: code.trim(), new_password: newPassword } });
@@ -72,17 +72,17 @@ export default function ForgotPassword() {
           <>
             <View style={{ gap: spacing.sm }}>
               <Txt variant="display" testID="forgot-password-title">
-                Nie pamiętasz hasła?
+                {t.forgotPassword.title}
               </Txt>
-              <Txt>Podaj e-mail, którym się rejestrujesz — wyślemy na niego kod do zresetowania hasła.</Txt>
+              <Txt>{t.forgotPassword.subtitle}</Txt>
             </View>
             <View style={{ gap: spacing.sm }}>
-              <Txt variant="label">E-mail</Txt>
+              <Txt variant="label">{t.forgotPassword.emailLabel}</Txt>
               <TextInput
                 testID="forgot-password-email-input"
                 value={email}
                 onChangeText={setEmail}
-                placeholder="twoj@email.pl"
+                placeholder="you@email.com"
                 placeholderTextColor={colors.muted}
                 keyboardType="email-address"
                 autoCapitalize="none"
@@ -92,18 +92,18 @@ export default function ForgotPassword() {
               />
             </View>
             {error ? <ErrorBox testID="forgot-password-error" message={error} /> : null}
-            <Button testID="forgot-password-send-code" title="Wyślij kod" onPress={requestCode} loading={loading} />
+            <Button testID="forgot-password-send-code" title={t.forgotPassword.sendCode} onPress={requestCode} loading={loading} />
           </>
         ) : (
           <>
             <View style={{ gap: spacing.sm }}>
               <Txt variant="display" testID="reset-password-title">
-                Sprawdź skrzynkę
+                {t.forgotPassword.checkInboxTitle}
               </Txt>
-              <Txt testID="reset-password-info">{info || `Wysłaliśmy 6-cyfrowy kod na adres ${email.trim()}. Wpisz go poniżej razem z nowym hasłem.`}</Txt>
+              <Txt testID="reset-password-info">{info || t.forgotPassword.checkInboxInfo(email.trim())}</Txt>
             </View>
             <View style={{ gap: spacing.sm }}>
-              <Txt variant="label">Kod z e-maila</Txt>
+              <Txt variant="label">{t.forgotPassword.codeLabel}</Txt>
               <TextInput
                 testID="reset-password-code-input"
                 value={code}
@@ -116,12 +116,12 @@ export default function ForgotPassword() {
               />
             </View>
             <View style={{ gap: spacing.sm }}>
-              <Txt variant="label">Nowe hasło</Txt>
+              <Txt variant="label">{t.forgotPassword.newPasswordLabel}</Txt>
               <TextInput
                 testID="reset-password-new-password-input"
                 value={newPassword}
                 onChangeText={setNewPassword}
-                placeholder="Min. 6 znaków"
+                placeholder={t.forgotPassword.newPasswordPlaceholder}
                 placeholderTextColor={colors.muted}
                 secureTextEntry
                 style={styles.input}
@@ -129,9 +129,9 @@ export default function ForgotPassword() {
               />
             </View>
             {error ? <ErrorBox testID="reset-password-error" message={error} /> : null}
-            <Button testID="reset-password-submit" title="Ustaw nowe hasło" onPress={resetPassword} loading={loading} />
+            <Button testID="reset-password-submit" title={t.forgotPassword.submit} onPress={resetPassword} loading={loading} />
             <Text testID="forgot-password-resend" style={styles.resend} onPress={requestCode} suppressHighlighting>
-              Nie dostałeś/aś kodu? Wyślij ponownie
+              {t.forgotPassword.resend}
             </Text>
           </>
         )}

@@ -1,0 +1,36 @@
+{
+  "summary": "Tested the 3 new iteration-39 features (pre-login country-select screen, custom-career-now-goes-to-detail-screen flow, regression) for the Polish-only 'Zawodowcy' app. Backend: new pytest suite test_iter39_country_select_custom_career.py (10/10 passed) covering register-with-country persistence (valid DE, invalid->PL fallback, missing->PL default), POST /careers/custom creating an entry visible in GET /recommendations 'now' with correct country, confirming no auto-roadmap is created for a freshly-added custom career, empty-title rejection (400), plus regression smoke (login, PATCH /account/country, daily-plan 403-for-free, weekly study-plan not-403-for-free). Frontend (mobile viewport 375x667, Polish UI, fresh browser context with no AsyncStorage): verified /country-select screen appears before /auth for a brand-new session with all 6 country tiles (PL, US, GB, AU, DE, NL) rendered with correct testIDs; clicking a tile stores locally and routes to /auth?country=<code>; reloading the app afterwards goes straight to /auth (country-select never reappears) confirming local persistence; registering a brand-new account after picking DE returned user.country=\"DE\" in the register response (network-captured) and the user was routed to /quiz next as expected. Custom-career flow: logged in as ania_t1@test.pl, tapped 'Własny cel' chip -> /custom-path, submitted 'Grafik komputerowy' via testID custom-path-submit -> correctly navigated to /career/<id> (career DETAIL screen, NOT directly to Droga/roadmap) showing AI-generated description, 100% dopasowania badge, 'choose-path-button' (Wybieram tę ścieżkę) and the 2-ads-for-free notice (choose-ad-notice) -- confirms the path is only built after an explicit tap on that button, not automatically. The new custom career 'Grafik komputerowy' was also confirmed present in the 'Zawody dla Ciebie' / 'Już teraz' tab list on the home screen. Regression: admin panel (ADMIN/Test@123) loads stats (201 users/17 Premium/3 Podarowane/66 Ścieżki) and searchable user list correctly; Profile screen 'Kraj i rynek pracy' section still shows all 6 country radio options with correct testIDs (country-option-PL etc.) and Polska still selected for ania_t1@test.pl; normal email/password login flow unaffected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter39_country_select_custom_career.py",
+    "/app/test_reports/pytest/pytest_iter39.xml"
+  ],
+  "action_items": [
+    "No functional bugs found in the 2 new features (pre-login country-select screen, custom-career-leads-to-detail-screen flow) or in the regression checklist (login, admin panel, profile country section).",
+    "Note (not a bug, informational): POST /careers/custom runs the title through the same AI validate_profession() guard used elsewhere -- it correctly rejects obviously-fake/test-ID-looking strings (e.g. 'TEST Custom Job df1ba5') with a clear Polish error. This means any future automated testing of this endpoint must use a realistic profession title (e.g. 'Grafik komputerowy', 'Elektryk przemysłowy') rather than TEST_-prefixed placeholder strings, otherwise the request will legitimately 400."
+  ],
+  "critical_code_review_comments": [
+    "index.tsx correctly gates the redirect decision on three states (user present -> skip country check entirely; no user + no local country -> /country-select; no user + local country present -> /auth) and shows a loading spinner (testID app-loading) while AsyncStorage is being read, avoiding a flash of the wrong screen -- good UX.",
+    "country-select.tsx passes the chosen code forward as both a local AsyncStorage write and an /auth?country=<code> route param, and auth.tsx's useEffect only falls back to re-reading AsyncStorage if no route param was present -- clean single-responsibility handoff, no duplicate/racy reads.",
+    "/api/careers/custom's design (push into recommendations.now, same shape as quiz-suggested careers, match:100) correctly reuses the existing 'now' list and career/[id] detail screen instead of creating a special-cased flow, so the custom career benefits from the exact same roadmap-building (2-ad) and caching logic as any other career with zero extra code paths -- good reuse per the code comment at line ~1026 of server.py.",
+    "propose_custom_career() updates the existing recommendation entry in-place (by matching title case-insensitively) if the user resubmits the same custom title, rather than creating duplicates -- good idempotency."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter39_country_select_custom_career.py"
+  ],
+  "success_rate": {"backend": "100% (10/10 new pytest tests passed)", "frontend": "100% of tested flows passed (pre-login country-select screen + persistence + registration with country, custom-career detail-screen flow + visibility in Zawody dla Ciebie list, admin panel, profile country section regression, login regression)"},
+  "seed_data_creation": "Created several TEST_iter39_* / test_iter39_* users via the new pytest suite (not cleaned up, prefixed for identification). Created test_ui_country_200281@test.pl via UI (country=DE, has_profile=false, stuck at quiz screen, harmless). Added one new custom career 'Grafik komputerowy' (id 570eb638c454) to ania_t1@test.pl's existing recommendations 'now' list as part of flow testing (career detail generated, path NOT built since 'Wybieram tę ścieżkę' was never tapped) -- left in place, does not affect her pre-existing data (recommendations + 1 path + weekly study plan from iteration 38).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "ania_t1@test.pl now also has a 6th 'now' career card ('Grafik komputerowy', 100% match, no roadmap built) in addition to the iteration-38 leftover weekly study plan (2 blocks, one in English). Both are harmless test artifacts, not bugs. Shell env var is EXPO_PUBLIC_BACKEND_URL (not EXPO_BACKEND_URL) in this repo's frontend/.env -- must export it manually before running pytest from /app/backend since conftest/pytest.ini do not load frontend/.env automatically.",
+  "rca_of_issue": "No bugs found this session; no RCA needed."
+}

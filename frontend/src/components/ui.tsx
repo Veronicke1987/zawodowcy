@@ -4,6 +4,7 @@ import React from "react";
 import { ActivityIndicator, Pressable, StyleProp, Text, TextProps, TextStyle, View, ViewStyle } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 
+import { useAuth } from "@/src/auth";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 export type IconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -197,13 +198,14 @@ export function IconButton({ icon, onPress, testID }: { icon: IconName; onPress:
 
 export function ErrorBox({ message, onRetry, testID }: { message: string; onRetry?: () => void; testID?: string }) {
   const { colors } = useTheme();
+  const { t } = useAuth();
   return (
     <View testID={testID} style={{ backgroundColor: colors.errorTint, borderRadius: radius.md, padding: spacing.lg, gap: spacing.md }}>
       <View style={{ flexDirection: "row", gap: spacing.sm, alignItems: "flex-start" }}>
         <Ionicons name="alert-circle" size={20} color={colors.error} />
         <Text style={{ flex: 1, fontFamily: fonts.medium, color: colors.error, fontSize: 14, lineHeight: 20 }}>{message}</Text>
       </View>
-      {onRetry ? <Button testID={`${testID}-retry`} title="Spróbuj ponownie" variant="ghost" onPress={onRetry} /> : null}
+      {onRetry ? <Button testID={`${testID}-retry`} title={t.common.retry} variant="ghost" onPress={onRetry} /> : null}
     </View>
   );
 }
@@ -213,11 +215,12 @@ export function ErrorBox({ message, onRetry, testID }: { message: string; onRetr
 // resources) so it's clear these are suggestions, not guarantees.
 export function AiNote({ style, testID }: { style?: StyleProp<ViewStyle>; testID?: string }) {
   const { colors } = useTheme();
+  const { t } = useAuth();
   return (
     <View testID={testID ?? "ai-note"} style={[{ flexDirection: "row", gap: spacing.xs, alignItems: "flex-start", paddingHorizontal: spacing.xs }, style]}>
       <Ionicons name="sparkles-outline" size={14} color={colors.muted} style={{ marginTop: 1 }} />
       <Text style={{ flex: 1, fontFamily: fonts.medium, fontSize: 11, lineHeight: 15, color: colors.muted }}>
-        To porady wygenerowane przez AI — pomagają zaplanować naukę, ale nie gwarantują otrzymania posady.
+        {t.common.aiNote}
       </Text>
     </View>
   );

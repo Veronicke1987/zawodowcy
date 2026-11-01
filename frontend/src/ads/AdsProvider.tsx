@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { adsAvailable, initAds, showInterstitial, showRewarded } from "@/src/ads/ads";
 import { useAuth } from "@/src/auth";
 import { Button, Ionicons, Txt } from "@/src/components/ui";
+import { Strings } from "@/src/i18n";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 const INTERVAL_MS = 5 * 60 * 1000;
@@ -42,7 +43,7 @@ type Sim = {
 };
 
 export function AdsProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, t } = useAuth();
   const showAds = !!user && !user.is_premium;
   const [sim, setSim] = useState<Sim | null>(null);
   const lastAdAt = useRef(Date.now());
@@ -175,6 +176,7 @@ export function AdsProvider({ children }: { children: React.ReactNode }) {
       {children}
       <AdModal
         sim={sim}
+        t={t}
         onWatch={() => setSim((prev) => (prev ? { ...prev, stage: "playing" } : prev))}
         onNextAd={onNextAd}
         onPremium={() => {
@@ -193,6 +195,7 @@ export function AdsProvider({ children }: { children: React.ReactNode }) {
 // Go), and a thank-you screen that reminds users ads keep the app free.
 function AdModal({
   sim,
+  t,
   onWatch,
   onNextAd,
   onPremium,
@@ -200,6 +203,7 @@ function AdModal({
   onThanksDone,
 }: {
   sim: Sim | null;
+  t: Strings;
   onWatch: () => void;
   onNextAd: () => void;
   onPremium: () => void;
@@ -221,36 +225,37 @@ function AdModal({
   useEffect(() => {
     if (!sim || sim.stage !== "playing" || adsAvailable) return;
     setLeft(SIM_SECONDS);
-    const t = setInterval(() => setLeft((x) => (x > 0 ? x - 1 : 0)), 1000);
-    return () => clearInterval(t);
+    const timerId = setInterval(() => setLeft((x) => (x > 0 ? x - 1 : 0)), 1000);
+    return () => clearInterval(timerId);
   }, [sim]);
 
   // The interstitial intro has no action to confirm — it auto-advances.
   useEffect(() => {
     if (!sim || sim.stage !== "intro" || sim.kind !== "interstitial") return;
-    const t = setTimeout(onWatch, INTERSTITIAL_INTRO_MS);
-    return () => clearTimeout(t);
+    const timerId = setTimeout(onWatch, INTERSTITIAL_INTRO_MS);
+    return () => clearTimeout(timerId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sim]);
 
   // The interstitial "thanks" screen has no reward to claim — it auto-closes.
   useEffect(() => {
     if (!sim || sim.stage !== "thanks" || sim.kind !== "interstitial") return;
-    const t = setTimeout(onThanksDone, INTERSTITIAL_THANKS_MS);
-    return () => clearTimeout(t);
+    const timerId = setTimeout(onThanksDone, INTERSTITIAL_THANKS_MS);
+    return () => clearTimeout(timerId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sim]);
 
   if (!view) return null;
   const rewarded = view.kind === "rewarded";
   const moreAdsLeft = rewarded && view.total > 1 && view.index < view.total;
+  const reason = view.reason ?? t.ads.defaultReason;
 
   return (
     <Modal visible={!!sim} animationType="fade" statusBarTranslucent onRequestClose={() => rewarded && view.stage === "intro" && onCancel()}>
       <View style={[styles.root, { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.lg }]} testID="ad-modal">
         <View style={styles.top}>
           <Text style={styles.adLabel} testID="ad-counter-label">
-            {view.total > 1 ? `REKLAMA ${view.index}/${view.total}` : "REKLAMA"}
+            {view.total > 1 ? t.ads.adLabelCounted(view.index, view.total) : t.ads.adLabel}
           </Text>
           {view.stage === "intro" && rewarded ? (
             <Pressable testID="ad-intro-close-button" onPress={onCancel} style={styles.close} hitSlop={10}>
@@ -258,7 +263,7 @@ function AdModal({
             </Pressable>
           ) : view.stage === "playing" && !adsAvailable ? (
             <Text style={styles.counter} testID="ad-countdown">
-              {left > 0 ? `Reklama trwa jeszcze ${left} s` : "Reklama kończy się…"}
+              {left > 0 ? t.ads.countdown(left) : t.ads.countdownEnding}
             </Text>
           ) : null}
         </View>
@@ -269,34 +274,34 @@ function AdModal({
             <Txt variant="title" style={{ textAlign: "center" }}>
               {rewarded
                 ? view.premiumQuota
-                  ? "Wykorzystano limit ścieżek w tym miesiącu"
+                  ? t.ads.introTitleQuota
                   : view.index > 1
-                    ? "Obejrzyj drugą reklamę, aby odebrać nagrodę"
-                    : "Obejrzyj reklamę, aby odebrać nagrodę"
-                : "Za chwilę krótka reklama"}
+                    ? t.ads.introTitleSecond
+                    : t.ads.introTitleFirst
+                : t.ads.introTitleInterstitial}
             </Txt>
             <Txt style={{ textAlign: "center" }} testID="ad-intro-text">
               {rewarded
                 ? view.premiumQuota
-                  ? `Masz już Premium, ale wykorzystano w tym miesiącu limit nowych ścieżek kariery. Obejrzyj ${view.total > 1 ? `${view.total} krótkie reklamy` : "krótką reklamę"}, aby ${view.reason ?? "kontynuować"} — limit odnowi się w przyszłym miesiącu.`
+                  ? t.ads.introTextQuota(view.total, reason)
                   : view.total > 1
                     ? view.index > 1
-                      ? `Jeszcze jedna reklama i gotowe — zaraz ${view.reason ?? "kontynuujesz"}.`
-                      : `Aby ${view.reason ?? "kontynuować i zobaczyć wyniki"}, obejrzyj ${view.total} krótkie reklamy pod rząd lub przejdź na Premium.`
-                    : `Aby ${view.reason ?? "kontynuować i zobaczyć wyniki"}, obejrzyj krótką reklamę lub przejdź na Premium.`
-                : "Reklamy pomagają utrzymać aplikację za darmo. Z Premium nie zobaczysz żadnych reklam."}
+                      ? t.ads.introTextMultiSecond(reason)
+                      : t.ads.introTextMultiFirst(view.total, reason)
+                    : t.ads.introTextSingle(reason)
+                : t.ads.introTextInterstitial}
             </Txt>
           </View>
         ) : view.stage === "playing" ? (
           <View style={styles.center}>
             <Ionicons name="megaphone" size={56} color={colors.brandPrimary} />
             <Txt variant="title" style={{ textAlign: "center" }}>
-              Tu pojawi się reklama
+              {t.ads.playingTitle}
             </Txt>
             {!adsAvailable ? (
-              <Text style={styles.note}>W podglądzie to symulacja — prawdziwe reklamy Google pojawią się w zbudowanej aplikacji.</Text>
+              <Text style={styles.note}>{t.ads.playingNoteSim}</Text>
             ) : (
-              <Txt style={{ textAlign: "center" }}>Ładowanie reklamy…</Txt>
+              <Txt style={{ textAlign: "center" }}>{t.ads.playingLoading}</Txt>
             )}
           </View>
         ) : (
@@ -305,12 +310,10 @@ function AdModal({
               <Ionicons name="heart" size={32} color={colors.onBrandPrimary} />
             </View>
             <Txt variant="title" style={{ textAlign: "center" }} testID="ad-thanks-title">
-              {moreAdsLeft ? "Dziękujemy! Jeszcze jedna reklama" : "Dziękujemy za obejrzenie reklamy!"}
+              {moreAdsLeft ? t.ads.thanksTitleMore : t.ads.thanksTitleDone}
             </Txt>
             <Txt style={{ textAlign: "center" }}>
-              {moreAdsLeft
-                ? "Obejrzyj drugą reklamę, aby dokończyć i odebrać nagrodę."
-                : `${rewarded ? "Twoja nagroda czeka — " : ""}Dzięki reklamom aplikacja Zawodowcy jest darmowa dla wszystkich.`}
+              {moreAdsLeft ? t.ads.thanksTextMore : t.ads.thanksTextDone(rewarded, t.common.appName)}
             </Txt>
           </View>
         )}
@@ -318,16 +321,16 @@ function AdModal({
         <View style={{ gap: spacing.sm }}>
           {view.stage === "intro" ? (
             <>
-              {rewarded ? <Button testID="ad-intro-watch-button" title="Obejrzyj reklamę" icon="play" onPress={onWatch} /> : null}
+              {rewarded ? <Button testID="ad-intro-watch-button" title={t.ads.watchButton} icon="play" onPress={onWatch} /> : null}
               {!view.premiumQuota && view.index === 1 ? (
-                <Button testID="ad-go-premium" title="Przejdź na Premium" variant={rewarded ? "ghost" : "primary"} icon="diamond" onPress={onPremium} />
+                <Button testID="ad-go-premium" title={t.ads.goPremiumButton} variant={rewarded ? "ghost" : "primary"} icon="diamond" onPress={onPremium} />
               ) : null}
             </>
           ) : view.stage === "thanks" && rewarded ? (
             moreAdsLeft ? (
-              <Button testID="ad-thanks-next-button" title="Obejrzyj kolejną reklamę" icon="play" onPress={onNextAd} />
+              <Button testID="ad-thanks-next-button" title={t.ads.nextAdButton} icon="play" onPress={onNextAd} />
             ) : (
-              <Button testID="ad-thanks-continue-button" title="Super, kontynuuj" icon="checkmark" onPress={onThanksDone} />
+              <Button testID="ad-thanks-continue-button" title={t.ads.continueButton} icon="checkmark" onPress={onThanksDone} />
             )
           ) : null}
         </View>

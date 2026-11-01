@@ -36,17 +36,17 @@ export async function api<T = any>(path: string, init: { method?: string; body?:
 export type PathSummary = { path_id: string; title: string; status: string; active: boolean; progress: number };
 export type PathsResponse = { paths: PathSummary[]; limit: number; is_premium: boolean };
 
+export type StudyPlanItem = { id: string; title: string; description: string; hours: number; done: boolean };
+export type StudyPlanWeek = { week: number; focus: string; goal: string; items: StudyPlanItem[] };
+export type StudyPlanContent = { hours_per_week: number; summary: string; weeks: StudyPlanWeek[]; tips: string[] };
+export type StudyPlanBlock = { index: number; status: "pending" | "ready" | "error"; plan?: StudyPlanContent };
 export type StudyPlan = {
   status: "none" | "pending" | "ready" | "error";
   path_id?: string;
   career?: Career;
   is_premium?: boolean;
-  plan?: {
-    hours_per_week: number;
-    summary: string;
-    weeks: { week: number; focus: string; goal: string; items: { title: string; description: string; hours: number }[] }[];
-    tips: string[];
-  };
+  blocks?: StudyPlanBlock[];
+  can_generate_next?: boolean;
 };
 
 export type Career = {

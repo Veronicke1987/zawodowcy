@@ -1,5 +1,5 @@
-import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import Animated, { FadeInDown } from "react-native-reanimated";
@@ -8,36 +8,41 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/src/auth";
 import { AuthHero } from "@/src/components/AuthHero";
 import { Button, ErrorBox, Ionicons, Txt } from "@/src/components/ui";
+import { LOCAL_COUNTRY_KEY } from "@/src/countries";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
+import { storage } from "@/src/utils/storage";
 
-const FEATURES = [
-  { icon: "briefcase", text: "Zawody z każdej branży — biuro, rzemiosło, opieka i więcej" },
-  { icon: "trending-up", text: "Ścieżka kariery krok po kroku" },
-  { icon: "school", text: "Kursy, studia i oferty pracy" },
-] as const;
+const FEATURE_ICONS = ["briefcase", "trending-up", "school"] as const;
 
 export default function AuthScreen() {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useStyles();
   const router = useRouter();
-  const { login, register } = useAuth();
+  const { country: countryParam } = useLocalSearchParams<{ country?: string }>();
+  const { login, register, t } = useAuth();
   const [mode, setMode] = useState<"login" | "register">("register");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [country, setCountry] = useState<string | undefined>(countryParam);
+
+  useEffect(() => {
+    if (countryParam) return;
+    storage.getItem<string | null>(LOCAL_COUNTRY_KEY, null).then((v) => v && setCountry(v));
+  }, [countryParam]);
 
   const submit = async () => {
     setError("");
-    if (mode === "register" && !email.includes("@")) return setError("Podaj poprawny adres e-mail.");
-    if (mode === "login" && !email.trim()) return setError("Podaj e-mail lub login.");
-    if (password.length < 6) return setError("Hasło musi mieć co najmniej 6 znaków.");
+    if (mode === "register" && !email.includes("@")) return setError(t.auth.invalidEmail);
+    if (mode === "login" && !email.trim()) return setError(t.auth.invalidLoginId);
+    if (password.length < 6) return setError(t.auth.shortPassword);
     setLoading(true);
     try {
       if (mode === "login") await login(email.trim(), password);
-      else await register(name.trim(), email.trim(), password);
+      else await register(name.trim(), email.trim(), password, country);
       router.replace("/");
     } catch (e: any) {
       setError(e.message);
@@ -55,20 +60,16 @@ export default function AuthScreen() {
       >
         <AuthHero topInset={insets.top} />
         <Animated.View entering={FadeInDown.duration(500)} style={styles.body}>
-          <Txt variant="display">{mode === "login" ? "Witaj z powrotem" : "Znajdź zawód dla siebie"}</Txt>
-          <Txt style={{ marginTop: spacing.sm }}>
-            {mode === "login"
-              ? "Zaloguj się, aby wrócić do swoich zawodów i ścieżki kariery."
-              : "Chcesz zmienić pracę lub branżę, a może dopiero wybierasz, co robić w życiu? Odpowiedz na kilka pytań — pokażemy Ci pasujące zawody i plan, jak w nich zacząć."}
-          </Txt>
+          <Txt variant="display">{mode === "login" ? t.auth.welcomeBackTitle : t.auth.findCareerTitle}</Txt>
+          <Txt style={{ marginTop: spacing.sm }}>{mode === "login" ? t.auth.loginSubtitle : t.auth.registerSubtitle}</Txt>
           {mode === "register" ? (
             <View style={{ gap: spacing.sm }} testID="auth-features">
-              {FEATURES.map((f) => (
-                <View key={f.text} style={styles.feature}>
+              {FEATURE_ICONS.map((icon, i) => (
+                <View key={icon} style={styles.feature}>
                   <View style={styles.featureIcon}>
-                    <Ionicons name={f.icon} size={18} color={colors.onBrandTertiary} />
+                    <Ionicons name={icon} size={18} color={colors.onBrandTertiary} />
                   </View>
-                  <Text style={styles.featureText}>{f.text}</Text>
+                  <Text style={styles.featureText}>{t.auth.features[i]}</Text>
                 </View>
               ))}
             </View>
@@ -86,31 +87,31 @@ export default function AuthScreen() {
                 style={[styles.segBtn, mode === m && { backgroundColor: colors.surface }]}
               >
                 <Text style={[styles.segText, { color: mode === m ? colors.onSurface : colors.muted }]}>
-                  {m === "login" ? "Logowanie" : "Rejestracja"}
+                  {m === "login" ? t.auth.loginTab : t.auth.registerTab}
                 </Text>
               </Pressable>
             ))}
           </View>
 
           {mode === "register" ? (
-            <Field label="Imię" testID="auth-name-input" value={name} onChangeText={setName} placeholder="np. Anna" />
+            <Field label={t.auth.nameLabel} testID="auth-name-input" value={name} onChangeText={setName} placeholder={t.auth.namePlaceholder} />
           ) : null}
           <Field
-            label={mode === "login" ? "E-mail lub login" : "E-mail"}
+            label={mode === "login" ? t.auth.emailLabelLogin : t.auth.emailLabel}
             testID="auth-email-input"
             value={email}
             onChangeText={setEmail}
-            placeholder={mode === "login" ? "twoj@email.pl lub login" : "twoj@email.pl"}
+            placeholder={mode === "login" ? t.auth.emailPlaceholderLogin : t.auth.emailPlaceholderLogin}
             keyboardType={mode === "login" ? "default" : "email-address"}
             autoCapitalize="none"
             autoCorrect={false}
           />
           <Field
-            label="Hasło"
+            label={t.auth.passwordLabel}
             testID="auth-password-input"
             value={password}
             onChangeText={setPassword}
-            placeholder="Min. 6 znaków"
+            placeholder={t.auth.passwordPlaceholder}
             secureTextEntry
             onSubmitEditing={submit}
           />
@@ -121,13 +122,13 @@ export default function AuthScreen() {
               style={{ alignSelf: "flex-end" }}
               hitSlop={8}
             >
-              <Text style={styles.forgotLink}>Nie pamiętam hasła</Text>
+              <Text style={styles.forgotLink}>{t.auth.forgotPassword}</Text>
             </Pressable>
           ) : null}
           {error ? <ErrorBox testID="auth-error" message={error} /> : null}
           <Button
             testID="auth-submit-button"
-            title={mode === "login" ? "Zaloguj się" : "Utwórz konto"}
+            title={mode === "login" ? t.auth.loginButton : t.auth.registerButton}
             onPress={submit}
             loading={loading}
             style={{ marginTop: spacing.sm }}

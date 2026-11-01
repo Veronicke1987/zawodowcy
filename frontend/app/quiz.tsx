@@ -22,8 +22,9 @@ export default function Quiz() {
   const { colors } = useTheme();
   const router = useRouter();
   const { edit } = useLocalSearchParams<{ edit?: string }>();
-  const { refresh } = useAuth();
-  const { watchAd, showAds } = useAds();  const [step, setStep] = useState(0);
+  const { refresh, t } = useAuth();
+  const { watchAd, showAds } = useAds();
+  const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Answers>({ personality: {} });
   const [loadingPrev, setLoadingPrev] = useState(!!edit);
   const [saving, setSaving] = useState(false);
@@ -56,7 +57,7 @@ export default function Quiz() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     if (!isLast) return setStep(step + 1);
     // every AI generation is ad-gated, including the very first onboarding quiz.
-    if (!(await watchAd("otrzymać propozycje zawodów"))) return;
+    if (!(await watchAd(t.ads.reasonGetCareers))) return;
     setSaving(true);
     setError("");
     try {
@@ -95,7 +96,7 @@ export default function Quiz() {
         <View style={styles.headerRow}>
           {step > 0 || router.canGoBack() ? <IconButton testID="quiz-back-button" icon="arrow-back" onPress={back} /> : <View style={{ width: 44 }} />}
           <Text style={styles.stepText} testID="quiz-step-indicator">
-            Pytanie {step + 1} z {steps.length}
+            {t.quiz.stepIndicator(step + 1, steps.length)}
           </Text>
           <View style={{ width: 44 }} />
         </View>
@@ -127,12 +128,12 @@ export default function Quiz() {
         <View style={[styles.stickyInner, { paddingBottom: insets.bottom + spacing.md }]}>
           {isLast && showAds ? (
             <Text style={styles.notice} testID="quiz-ad-notice">
-              Przed propozycjami zobaczysz krótką reklamę.
+              {t.quiz.adNotice}
             </Text>
           ) : null}
           <Button
             testID="quiz-next-button"
-            title={isLast ? "Pokaż moje zawody" : "Dalej"}
+            title={isLast ? t.quiz.finishButton : t.quiz.nextButton}
             icon={isLast ? "sparkles" : "arrow-forward"}
             disabled={!canNext}
             loading={saving}
