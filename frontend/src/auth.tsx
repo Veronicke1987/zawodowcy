@@ -22,6 +22,13 @@ export type User = {
   roadmap_generations_limit?: number;
 };
 
+// Set by country-select.tsx (the one-time, pre-auth screen) right before the very first
+// register/login on this device, so that pick gets applied to whichever account the user ends
+// up authenticating with. Cleared immediately after it's used once — later logins must NEVER
+// re-apply it, otherwise a language/country changed later in Profile would be clobbered every
+// time the user logs back in on this same device.
+export const PENDING_ACCOUNT_SYNC_KEY = "pending_country_language_sync";
+
 type AuthCtx = {
   user: User | null;
   loading: boolean;
@@ -91,9 +98,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string) => {
     await handleAuth(await api("/auth/login", { method: "POST", body: { email, password } }));
+    // If this device has a freshly-picked (not-yet-applied) country/language from the one-time
+    // country-select screen, push it onto the account that just logged in — covers an existing
+    // user who picked a different market/language right before signing in to their own account.
+    const pendingSync = await storage.getItem<boolean>(PENDING_ACCOUNT_SYNC_KEY, false);
+    if (pendingSync) {
+      await storage.setItem(PENDING_ACCOUNT_SYNC_KEY, false);
+      try {
+        if (localCountry) await api("/account/country", { method: "PATCH", body: { country: localCountry } });
+        if (localLanguage) await api("/account/language", { method: "PATCH", body: { language: localLanguage } });
+        await refresh();
+      } catch {
+        // Non-critical: the account keeps its previous country/language, user can still change it in Profile.
+      }
+    }
   };
   const register = async (name: string, email: string, password: string, country?: string, ui_language?: string) => {
     await handleAuth(await api("/auth/register", { method: "POST", body: { name, email, password, country, ui_language } }));
+    // The fresh pick was already applied at account-creation time via the params above — clear
+    // the flag so a later login on this device never re-applies it over a Profile-made change.
+    await storage.setItem(PENDING_ACCOUNT_SYNC_KEY, false);
   };
   const logout = async () => {
     await storage.secureRemove(TOKEN_KEY);

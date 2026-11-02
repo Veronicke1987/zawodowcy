@@ -1,0 +1,31 @@
+{
+  "summary": "Tested the bug fix for 'country/language pick before login not applied to existing account on login'. Backend contract tests (6/6 passed) for PATCH /api/account/country and /api/account/language. Full Playwright E2E flows executed for all 3 scenarios (A, B, C) against the real preview URL using the admin@reset.app account and a fresh TEST_ registered account. All 3 scenarios PASSED.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "quiz screen (post-registration)", "issue": "Quiz question text ('What kind of change are you looking for?') rendered in English even though the fresh account was registered with ui_language=nl and country=NL (confirmed via GET /auth/me). Likely a pre-existing localization gap in the quiz screen unrelated to this country/language-sync fix, but worth flagging since it's the very next screen a newly registered user sees.", "testID": "", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_country_lang_sync_flag.py", "/app/test_reports/pytest/pytest_country_lang_sync.xml"],
+  "action_items": [
+    "Fix verified working correctly for the reported bug — no code changes needed from this testing round.",
+    "Optional/low priority: check why the quiz screen right after registration isn't honoring the freshly-set ui_language (likely a separate, pre-existing localization gap, not part of this fix's scope)."
+  ],
+  "critical_code_review_comments": [
+    "auth.tsx login(): the pendingSync PATCH calls are wrapped in try/catch that silently swallows errors ('Non-critical' comment) — acceptable per the design intent but means if the PATCH fails (e.g. network blip), the UI will not show any error to the user and will silently continue with the account's prior country/language. This is a reasonable tradeoff, just noting it for visibility.",
+    "country-select.tsx confirm(): pendingCountry defaults to localCountry||COUNTRIES[0].code, so a country PATCH is always queued even if the user never touches the country dropdown (defaults to first country in the list if no prior local pick exists). This is expected behavior (pre-selects currently stored value) and did not cause any incorrect behavior in testing, but is worth knowing: visiting country-select again always sets the pending-sync flag for country, whereas language is only flagged if the user actively opens and picks from the language dropdown (setLocalLanguage is only called onSelect, with no default persist). No bug found from this asymmetry in testing, but documents an edge case for future QA."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "100% (3/3 scenarios)"},
+  "seed_data_creation": "Created one TEST_ prefixed account (TEST_scenc_<timestamp>@test.pl / Test@123) for Scenario C registration test; left in DB (no delete-account API exists). Restored admin@reset.app back to its original country=PL, ui_language=en state after testing to avoid side effects on other test suites.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Scenario A (existing account login applies fresh country-select pick): CONFIRMED FIXED — logged in as admin@reset.app (originally PL/en) after picking Deutschland/Deutsch on /country-select, then logging in (not registering); GET /auth/me and Profile UI both showed country=DE, ui_language=de post-login. Scenario B (regression guard): CONFIRMED NOT reintroduced — after scenario A, manually changed Profile dropdowns to USA/Nederlands, logged out and back in twice (once via UI, once via raw API call) with the pending-sync flag correctly cleared (verified via localStorage inspection showing pending_country_language_sync='false' after the first login) — account kept US/nl on every subsequent login, never reverted to the DE/de country-select pick. Scenario C (registration unaffected): CONFIRMED — fresh TEST_ account registered after picking Nederland/Nederlands on country-select was created with country=NL, ui_language=nl exactly as expected. All testing done against the live preview URL (EXPO_PUBLIC_BACKEND_URL), not localhost.",
+  "rca_of_issue": "N/A - this was a fix verification task, not a new RCA. The original bug (pre-login country/language pick not applied to existing accounts on login) is fixed by auth.tsx's login() checking the PENDING_ACCOUNT_SYNC_KEY AsyncStorage flag (set by country-select.tsx's confirm()) right after a successful login, PATCHing /api/account/country and /api/account/language with the locally-picked values, then clearing the flag so it never re-fires on subsequent logins."
+}

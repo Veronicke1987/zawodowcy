@@ -7,7 +7,7 @@ import { Button, Txt } from "@/src/components/ui";
 import { SelectField } from "@/src/components/Select";
 import { COUNTRIES, LOCAL_COUNTRY_KEY } from "@/src/countries";
 import { UI_LANGUAGES } from "@/src/languages";
-import { useAuth } from "@/src/auth";
+import { useAuth, PENDING_ACCOUNT_SYNC_KEY } from "@/src/auth";
 import { makeStyles, spacing } from "@/src/theme";
 import { storage } from "@/src/utils/storage";
 
@@ -30,6 +30,9 @@ export default function CountrySelect() {
     setSaving(true);
     await storage.setItem(LOCAL_COUNTRY_KEY, pendingCountry);
     setLocalCountry(pendingCountry);
+    // Marks this pick as "not yet applied to an account" — login()/register() consume and
+    // clear this right after the very next successful auth, whichever account that ends up being.
+    await storage.setItem(PENDING_ACCOUNT_SYNC_KEY, true);
     router.replace({ pathname: "/auth", params: { country: pendingCountry } });
   };
 
