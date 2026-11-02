@@ -1,0 +1,40 @@
+{
+  "summary": "Verified the i18n fix for the Road (Career Path) task sheet, milestone sheet, canvas labels and the daily-plan item resource sheet across EN, DE and PL (regression) using the live Expo web preview and account ania_t1@test.pl (has an existing built roadmap). All previously hardcoded Polish strings in TaskSheet.tsx and RoadMap.tsx now correctly follow the selected UI language.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "TaskSheet.tsx and RoadMap.tsx are now correctly wired via useAuth().t.road.* for all UI chrome strings; code review confirms no remaining hardcoded Polish literals in these components.",
+    "Note (not a bug, by design): AI-generated roadmap/task content (milestone titles, descriptions, requirements, resource titles/descriptions, step text) is generated once in the language active at creation time and cached — it does NOT retranslate when the user later switches UI language. This matches the Profile screen's own disclaimer ('Already generated paths/plans don't change') and was reproduced in all 3 languages tested (content stayed in the original generation language while all i18n chrome correctly switched)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (no backend changes to test)", "frontend": "100% (all checked labels rendered correctly in EN/DE/PL)"},
+  "seed_data_creation": "none (reused existing path for ania_t1@test.pl). Temporarily enabled Premium via POST /api/premium/subscribe for this account to access the Daily Plan screen for testing; attempted to revert but the subscribe endpoint doesn't expose a clean 'cancel' flag — ania_t1@test.pl may now show is_premium=true as a side effect of this test run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "ania_t1@test.pl's premium flag was toggled on during this test session (via demo /api/premium/subscribe) to reach the Daily Plan screen; revert if a non-premium state is needed for future tests.",
+  "verification_details": {
+    "English": {
+      "road_tab_canvas": "'YOUR PATH' header, 'Start' / 'You are here today' labels all correct",
+      "task_sheet": "'STEP ON THE PATH' kicker, 'Achieved! (undo)', 'Looking for tips, courses and materials…' loading text, 'How to get this', 'For free or cheaper', 'Possible specializations', 'Links and materials' heading, resource badges 'STUDIES / ADMISSIONS', 'YOUTUBE', 'EMPLOYMENT OFFICE', 'WEBINAR', 'CERTIFICATE' all correct",
+      "milestone_sheet": "'POSITION · LEVEL 1' kicker, 'Requirements from job listings', 'Tasks to complete' all correct",
+      "daily_plan_item_sheet": "'Steps', 'Free', 'Materials', 'ONLINE COURSE', 'EMPLOYMENT OFFICE', 'WEBINAR' resource badges all correct (plan.tsx reuses Block/ResourceRow styling, its own t.plan.* keys also translate correctly)"
+    },
+    "German_spot_check": {
+      "road_tab_canvas": "'DEIN WEG' header, 'Lernplan' button, 'Hier bist du heute' label correct",
+      "task_sheet": "'SCHRITT AUF DEM WEG' kicker, 'Erreicht! (rückgängig)', 'So erreichst du das' all correct"
+    },
+    "Polish_regression": {
+      "road_tab_canvas": "'TWOJA DROGA', 'Plan nauki', 'Tu jesteś dziś' all correct and unchanged",
+      "task_sheet": "'KROK NA DRODZE', 'Zdobyte! (cofnij)', 'Jak to zdobyć' all correct and unchanged",
+      "milestone_sheet": "'STANOWISKO · POZIOM 1' correct and unchanged"
+    }
+  },
+  "rca_of_issue": "Original bug (now fixed and verified): TaskSheet.tsx and RoadMap.tsx had ~20 hardcoded Polish literals with no i18n lookup. Fix added a `road` namespace of keys to pl/en/de/nl.ts and replaced every hardcoded string with t.road.* lookups. Verified fix is complete and correct for all UI chrome strings; confirmed this is the full scope of the originally reported bug."
+}

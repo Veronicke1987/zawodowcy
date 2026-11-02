@@ -4,6 +4,7 @@ import Animated, { FadeIn } from "react-native-reanimated";
 import Svg, { Circle, Path } from "react-native-svg";
 
 import { Milestone, Task } from "@/src/api";
+import { useAuth } from "@/src/auth";
 import { Ionicons } from "@/src/components/ui";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
@@ -29,6 +30,7 @@ export function RoadMap({
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
+  const { t } = useAuth();
   const [width, setWidth] = useState(0);
 
   const items: Item[] = useMemo(() => {
@@ -101,8 +103,8 @@ export function RoadMap({
                       <Ionicons name="location" size={22} color={colors.onSurfaceInverse} />
                     </View>
                     <View style={[styles.label, labelStyle, { top: p.h / 2 - 22 }]}>
-                      <Text style={styles.lblTitle}>Start</Text>
-                      <Text style={styles.lblSub}>Tu jesteś dziś</Text>
+                      <Text style={styles.lblTitle}>{t.road.startLabel}</Text>
+                      <Text style={styles.lblSub}>{t.road.startSub}</Text>
                     </View>
                   </>
                 ) : it.kind === "task" ? (
@@ -157,13 +159,11 @@ export function RoadMap({
                       />
                     </Pressable>
                     <Pressable onPress={() => onMilestone(it.milestone, it.index)} style={[styles.label, styles.card, labelStyle, { top: p.h / 2 - 44 }]}>
-                      <Text style={styles.level}>{it.last ? "CEL" : `POZIOM ${it.index + 1}`}</Text>
+                      <Text style={styles.level}>{it.last ? t.road.finalGoalBadge : t.road.levelBadge(it.index + 1)}</Text>
                       <Text numberOfLines={2} style={[styles.lblTitle, leftSide && { textAlign: "right" }]}>
                         {it.milestone.title}
                       </Text>
-                      <Text style={styles.lblSub}>
-                        {it.milestone.tasks.filter((t) => t.done).length}/{it.milestone.tasks.length} zdobyte
-                      </Text>
+                      <Text style={styles.lblSub}>{t.road.achievedProgress(it.milestone.tasks.filter((tk) => tk.done).length, it.milestone.tasks.length)}</Text>
                     </Pressable>
                   </>
                 )}

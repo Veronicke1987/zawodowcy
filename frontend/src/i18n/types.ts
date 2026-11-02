@@ -188,6 +188,24 @@ export type Strings = {
     deleteText: (title?: string) => string;
     deleteConfirm: string;
     deleteCancel: string;
+    stepKicker: string; // kicker above a task's title inside the task sheet, e.g. "STEP ON THE PATH"
+    positionKicker: string; // "POSITION" prefix in the milestone sheet kicker, combined with levelBadge
+    levelBadge: (n: number) => string; // e.g. "LEVEL 2" — used both in the milestone sheet kicker and on the road canvas
+    finalGoalBadge: string; // short badge on the last milestone node, e.g. "GOAL"
+    startLabel: string; // "Start" node label on the road canvas
+    startSub: string; // "You are here today" subtitle under the start node
+    achievedProgress: (done: number, total: number) => string; // e.g. "2/5 achieved"
+    markDone: string; // task-sheet button label before marking done
+    markDoneUndo: string; // task-sheet button label after marking done (tap again to undo)
+    loadingResources: string; // shown while AI resources for a task are being fetched
+    howToGetIt: string; // Block title for the "steps" list
+    freeOrCheaper: string; // Block title for the "free_tips" list
+    possibleSpecializations: string; // Block title for the "specializations" list
+    linksAndMaterials: string; // heading above the resource links list
+    linkFallback: string; // generic fallback label for a resource with an unrecognised type
+    requirementsFromOffers: string; // Block title for milestone requirements
+    tasksToComplete: string; // heading above a milestone's task list
+    resourceTypes: Record<string, string>; // keyed by backend resource "type" (youtube/course/studies/urzad_pracy/webinar/certificate/article)
   };
   plan: {
     screenTitle: string; // header title for the whole /plan screen

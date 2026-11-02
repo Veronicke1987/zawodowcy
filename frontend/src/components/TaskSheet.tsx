@@ -4,6 +4,7 @@ import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from "rea
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, Milestone, Resource, Task, TaskResources } from "@/src/api";
+import { useAuth } from "@/src/auth";
 import { AiNote, Button, ErrorBox, IconButton, Ionicons, IconName, PressableScale, Txt } from "@/src/components/ui";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
@@ -15,15 +16,6 @@ const TYPE_ICON: Record<string, IconName> = {
   webinar: "videocam-outline",
   certificate: "ribbon-outline",
   article: "newspaper-outline",
-};
-const TYPE_LABEL: Record<string, string> = {
-  youtube: "YouTube",
-  course: "Kurs online",
-  studies: "Studia / rekrutacja",
-  urzad_pracy: "Urząd pracy",
-  webinar: "Webinar",
-  certificate: "Certyfikat",
-  article: "Poradnik",
 };
 
 export function Sheet({ visible, onClose, children, testID }: { visible: boolean; onClose: () => void; children: React.ReactNode; testID: string }) {
@@ -45,6 +37,7 @@ export function Sheet({ visible, onClose, children, testID }: { visible: boolean
 export function TaskSheet({ task, onClose, onToggle }: { task: Task | null; onClose: () => void; onToggle: (t: Task) => void }) {
   const styles = useTaskSheetStyles();
   const { colors } = useTheme();
+  const { t } = useAuth();
   const q = useQuery({
     queryKey: ["resources", task?.id],
     queryFn: () => api<TaskResources>(`/roadmap/tasks/${task!.id}/resources`),
@@ -58,7 +51,7 @@ export function TaskSheet({ task, onClose, onToggle }: { task: Task | null; onCl
         <>
           <View style={styles.headRow}>
             <View style={{ flex: 1, gap: 4 }}>
-              <Text style={styles.kicker}>KROK NA DRODZE</Text>
+              <Text style={styles.kicker}>{t.road.stepKicker}</Text>
               <Txt variant="title" testID="task-sheet-title">
                 {task.title}
               </Txt>
@@ -69,7 +62,7 @@ export function TaskSheet({ task, onClose, onToggle }: { task: Task | null; onCl
             <Txt>{task.description}</Txt>
             <Button
               testID="task-toggle-button"
-              title={task.done ? "Zdobyte! (cofnij)" : "Oznacz jako zdobyte"}
+              title={task.done ? t.road.markDoneUndo : t.road.markDone}
               icon={task.done ? "checkmark-circle" : "checkmark-circle-outline"}
               variant={task.done ? "secondary" : "primary"}
               onPress={() => onToggle(task)}
@@ -77,7 +70,7 @@ export function TaskSheet({ task, onClose, onToggle }: { task: Task | null; onCl
             {q.isLoading ? (
               <View style={styles.loading} testID="task-resources-loading">
                 <ActivityIndicator color={colors.brandPrimary} />
-                <Txt style={{ flex: 1 }}>Szukam podpowiedzi, kursów i materiałów…</Txt>
+                <Txt style={{ flex: 1 }}>{t.road.loadingResources}</Txt>
               </View>
             ) : q.isError ? (
               <ErrorBox testID="task-resources-error" message={(q.error as Error).message} onRetry={() => q.refetch()} />
@@ -90,10 +83,10 @@ export function TaskSheet({ task, onClose, onToggle }: { task: Task | null; onCl
                     <Text style={styles.pillText}>{r.time_estimate}</Text>
                   </View>
                 ) : null}
-                <Block title="Jak to zdobyć" items={r.steps} numbered />
-                {r.free_tips?.length ? <Block title="Za darmo lub taniej" items={r.free_tips} icon="gift-outline" /> : null}
-                {r.specializations?.length ? <Block title="Możliwe specjalizacje" items={r.specializations} icon="git-branch-outline" /> : null}
-                <Txt variant="heading">Linki i materiały</Txt>
+                <Block title={t.road.howToGetIt} items={r.steps} numbered />
+                {r.free_tips?.length ? <Block title={t.road.freeOrCheaper} items={r.free_tips} icon="gift-outline" /> : null}
+                {r.specializations?.length ? <Block title={t.road.possibleSpecializations} items={r.specializations} icon="git-branch-outline" /> : null}
+                <Txt variant="heading">{t.road.linksAndMaterials}</Txt>
                 {r.resources.map((res, i) => (
                   <ResourceRow key={i} res={res} testID={`task-resource-${i}`} />
                 ))}
@@ -132,13 +125,14 @@ export function Block({ title, items, numbered, icon }: { title: string; items: 
 export function ResourceRow({ res, testID }: { res: Resource; testID: string }) {
   const styles = useTaskSheetStyles();
   const { colors } = useTheme();
+  const { t } = useAuth();
   return (
     <PressableScale testID={testID} onPress={() => WebBrowser.openBrowserAsync(res.url)} style={styles.res}>
       <View style={styles.resIcon}>
         <Ionicons name={TYPE_ICON[res.type] || "link-outline"} size={22} color={colors.onBrandTertiary} />
       </View>
       <View style={{ flex: 1, gap: 2 }}>
-        <Text style={styles.resType}>{TYPE_LABEL[res.type] || res.platform || "Link"}</Text>
+        <Text style={styles.resType}>{t.road.resourceTypes[res.type] || res.platform || t.road.linkFallback}</Text>
         <Text style={styles.resTitle}>{res.title}</Text>
         <Text style={styles.resDesc} numberOfLines={2}>
           {res.description}
@@ -162,13 +156,16 @@ export function MilestoneSheet({
 }) {
   const styles = useTaskSheetStyles();
   const { colors } = useTheme();
+  const { t } = useAuth();
   return (
     <Sheet visible={!!milestone} onClose={onClose} testID="milestone-sheet">
       {milestone ? (
         <>
           <View style={styles.headRow}>
             <View style={{ flex: 1, gap: 4 }}>
-              <Text style={styles.kicker}>STANOWISKO · POZIOM {index + 1}</Text>
+              <Text style={styles.kicker}>
+                {t.road.positionKicker} · {t.road.levelBadge(index + 1)}
+              </Text>
               <Txt variant="title" testID="milestone-sheet-title">
                 {milestone.title}
               </Txt>
@@ -191,15 +188,15 @@ export function MilestoneSheet({
                 </View>
               ) : null}
             </View>
-            {milestone.requirements?.length ? <Block title="Wymagania z ofert pracy" items={milestone.requirements} icon="clipboard-outline" /> : null}
-            <Txt variant="heading">Zadania do wykonania</Txt>
-            {milestone.tasks.map((t) => (
-              <PressableScale key={t.id} testID={`milestone-task-${t.id}`} onPress={() => onTask(t)} style={styles.taskRow}>
-                <Ionicons name={t.done ? "checkmark-circle" : "ellipse-outline"} size={24} color={t.done ? colors.brandPrimary : colors.borderStrong} />
+            {milestone.requirements?.length ? <Block title={t.road.requirementsFromOffers} items={milestone.requirements} icon="clipboard-outline" /> : null}
+            <Txt variant="heading">{t.road.tasksToComplete}</Txt>
+            {milestone.tasks.map((t2) => (
+              <PressableScale key={t2.id} testID={`milestone-task-${t2.id}`} onPress={() => onTask(t2)} style={styles.taskRow}>
+                <Ionicons name={t2.done ? "checkmark-circle" : "ellipse-outline"} size={24} color={t2.done ? colors.brandPrimary : colors.borderStrong} />
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.resTitle, t.done && { color: colors.muted, textDecorationLine: "line-through" }]}>{t.title}</Text>
+                  <Text style={[styles.resTitle, t2.done && { color: colors.muted, textDecorationLine: "line-through" }]}>{t2.title}</Text>
                   <Text style={styles.resDesc} numberOfLines={2}>
-                    {t.description}
+                    {t2.description}
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={colors.muted} />
