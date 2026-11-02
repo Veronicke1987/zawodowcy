@@ -247,12 +247,28 @@ async def touch_streak(user: UserDoc) -> dict:
     return new_streak
 
 
+def is_premium(u: UserDoc) -> bool:
+    if not u.premium or not u.premium.get("active"):
+        return False
+    until = u.premium.get("until")
+    if until:
+        try:
+            expiry = datetime.fromisoformat(until)
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=timezone.utc)
+            if expiry < datetime.now(timezone.utc):
+                return False
+        except ValueError:
+            pass
+    return True
+
+
 async def public_user(u: UserDoc) -> dict:
     profile = await db.profiles.find_one({"user_id": u.id}, {"_id": 0, "user_id": 1})
     streak = await touch_streak(u)
     country = u.country if u.country in COUNTRY_CONFIG else "PL"
     return {"id": u.id, "email": u.email, "name": u.name, "role": u.role, "has_profile": bool(profile),
-            "is_premium": bool(u.premium and u.premium.get("active")), "streak": streak, "country": country,
+            "is_premium": is_premium(u), "streak": streak, "country": country,
             "ui_language": effective_language(u, country),
             "roadmap_generations_used": await roadmap_gen_used(u.id), "roadmap_generations_limit": PREMIUM_MONTHLY_GENERATIONS}
 
@@ -1108,10 +1124,6 @@ class CancelPremiumIn(BaseModel):
 
 
 CANCELLATION_REASONS = {"too_expensive", "no_longer_needed", "not_satisfied", "got_job", "other"}
-
-
-def is_premium(u: UserDoc) -> bool:
-    return bool(u.premium and u.premium.get("active"))
 
 
 def _gen_month_key() -> str:

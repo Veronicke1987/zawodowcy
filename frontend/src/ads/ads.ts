@@ -1,5 +1,12 @@
 // Native: real AdMob ads in a development/production build. Expo Go has no native
 // AdMob module, so the guarded require fails closed and the app shows a simulated ad.
+//
+// TEMPORARILY DISABLED (see app.json — the "react-native-google-mobile-ads" config plugin
+// was removed) while diagnosing a crash-on-launch reported on real Play Store installs:
+// removing the plugin means the native module is no longer linked into the build at all, so
+// the require() below will fail and `adsAvailable` will be false everywhere — ads are simply
+// skipped, nothing else needs to change. Once the crash is confirmed fixed/unrelated, restore
+// the plugin block in app.json (see its git history) to bring real ads back.
 import Constants from "expo-constants";
 
 let sdk: any = null;
