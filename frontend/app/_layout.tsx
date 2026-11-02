@@ -1,6 +1,7 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { Image, LogBox, StyleSheet, Text, View } from "react-native";
@@ -16,6 +17,13 @@ import { loadThemeName, useTheme } from "@/src/theme";
 // Disable logbox errors etc so that users can see the app
 // and agent works as expected.
 LogBox.ignoreAllLogs(true);
+
+// Keep the native splash screen up ourselves (instead of the default auto-hide) so it only
+// goes away once we explicitly say so below — this is the one moment startup failures (ads,
+// login session bootstrap, theme/font loading) are most likely to show up, and we never want
+// the native splash to get stuck forever because of one of them. Guarded: on some runtimes
+// (e.g. web) this call can reject, which must never block the rest of the app from rendering.
+SplashScreen.preventAutoHideAsync().catch((error) => console.log("[RootLayout] preventAutoHideAsync unavailable:", error));
 
 // Shown for the brief window between the native splash screen handing off to JS and
 // our fonts/theme finishing loading. Matches app.json's native splash (same brand coral
@@ -41,10 +49,22 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
-    loadThemeName().finally(() => setThemeReady(true));
+    loadThemeName()
+      .catch((error) => console.log("[RootLayout] loadThemeName failed, using default theme:", error))
+      .finally(() => setThemeReady(true));
   }, []);
 
-  if ((!fontsLoaded && !fontError) || !themeReady) return <AppBootSplash />;
+  const ready = (fontsLoaded || fontError) && themeReady;
+
+  useEffect(() => {
+    if (!ready) return;
+    // Hand off from native splash to the JS boot screen/app — wrapped because hideAsync()
+    // can reject (e.g. already hidden, or unsupported on web) and that must never be allowed
+    // to leave the app stuck behind the splash image.
+    SplashScreen.hideAsync().catch((error) => console.log("[RootLayout] hideAsync failed (splash likely already hidden):", error));
+  }, [ready]);
+
+  if (!ready) return <AppBootSplash />;
 
   // One app level ErrorBoundary; a render crash shows a reload screen
   // instead of a blank app. GestureHandlerRootView must wrap the whole tree

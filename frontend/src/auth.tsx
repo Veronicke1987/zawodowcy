@@ -53,8 +53,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [localLanguage, setLocalLanguageState] = useState<Lang | null>(null);
 
   useEffect(() => {
-    storage.getItem<string | null>(LOCAL_COUNTRY_KEY, null).then(setLocalCountry);
-    storage.getItem<Lang | null>(LOCAL_LANGUAGE_KEY, null).then(setLocalLanguageState);
+    storage.getItem<string | null>(LOCAL_COUNTRY_KEY, null).then(setLocalCountry).catch((error) => console.log("[AuthProvider] failed to read local country, using default:", error));
+    storage.getItem<Lang | null>(LOCAL_LANGUAGE_KEY, null).then(setLocalLanguageState).catch((error) => console.log("[AuthProvider] failed to read local language, using default:", error));
   }, []);
 
   const setLocalLanguage = useCallback((language: Lang) => {
@@ -73,21 +73,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const t = useMemo(() => getStrings(lang), [lang]);
 
   const refresh = useCallback(async () => {
-    const token = await storage.secureGet(TOKEN_KEY, null);
-    if (!token) {
-      setUser(null);
-      return;
-    }
+    // Session bootstrap on app start must never crash the app — a missing/corrupt stored
+    // token, SecureStore being unavailable, or the backend being unreachable must all just
+    // fall back to "logged out", so the home/login screen still renders normally.
     try {
-      setUser(await api<User>("/auth/me"));
-    } catch (e: any) {
-      if (e?.status === 401) await storage.secureRemove(TOKEN_KEY);
+      const token = await storage.secureGet(TOKEN_KEY, null);
+      if (!token) {
+        setUser(null);
+        return;
+      }
+      try {
+        setUser(await api<User>("/auth/me"));
+      } catch (e: any) {
+        if (e?.status === 401) await storage.secureRemove(TOKEN_KEY);
+        setUser(null);
+      }
+    } catch (error) {
+      console.log("[AuthProvider] session bootstrap failed, continuing logged out:", error);
       setUser(null);
     }
   }, []);
 
   useEffect(() => {
-    refresh().finally(() => setLoading(false));
+    refresh()
+      .catch((error) => console.log("[AuthProvider] unexpected error during startup refresh:", error))
+      .finally(() => setLoading(false));
   }, [refresh]);
 
   const handleAuth = async (res: { access_token: string; user: User }) => {

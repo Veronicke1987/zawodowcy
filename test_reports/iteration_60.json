@@ -1,0 +1,37 @@
+{
+  "summary": "Regression-tested the defensive hardening changes (explicit SplashScreen control in _layout.tsx, try/catch wrapping in auth.tsx refresh()/bootstrap, AdsProvider.tsx init effect, ads.ts native module require/initialize) in the web preview. All flows pass with zero regressions: cold boot -> country select -> login (admin@reset.app) -> registration (fresh throwaway account) -> full ad-gated flow (quiz 'Pokaż moje zawody' -> rewarded-ad intro -> simulated countdown -> thanks screen -> continue -> career matches loaded). No React Native red screens, no SplashScreen/Ads/Auth related console errors or warnings observed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "app/_layout.tsx or a screen rendered at root (pre-existing, unrelated to this session's changes)",
+        "issue": "Console warning seen during login/registration: 'navigation.isFocused() was called while rendering the screen __root. During render it can return a stale value...' Recommend switching to useIsFocused() hook. Not a crash, not introduced by this hardening session."
+      }
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "No action required for this hardening session - no regressions found in web preview.",
+    "(Pre-existing, low priority) Consider fixing navigation.isFocused() warning by using useIsFocused() hook instead of calling it during render.",
+    "Reminder: the actual native-crash-on-real-phone bug this session targeted can only be confirmed by generating a fresh Android native build (Publish) and installing on the physical device, since Expo config plugin changes (AdMob androidAppId) only take effect on a new native build, not a JS republish. This is out of scope for web/Expo Go preview testing and was correctly flagged as such in the request."
+  ],
+  "critical_code_review_comments": [
+    "auth.tsx refresh(): properly nested try/catch — outer catch covers storage.secureGet failures, inner catch covers api('/auth/me') failures (incl. 401 token cleanup). Falls back to logged-out cleanly. Good.",
+    "_layout.tsx: SplashScreen.preventAutoHideAsync()/hideAsync() both wrapped in .catch(console.log) at module scope / in useEffect respectively — cannot hang or throw unhandled. Good.",
+    "AdsProvider.tsx ad-init useEffect: wrapped in try/catch, and initAds() promise itself also has .catch — double-guarded as stated. Good, no behavior change observed.",
+    "ads.ts: native module require guarded in try/catch; initialize() guarded in try/catch; adsAvailable flag correctly gates all ad calls, defaults to simulated ad in web/Expo Go. Verified functionally working end-to-end (rewarded ad flow completed during quiz 'Pokaż moje zawody')."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A - not in testing scope", "frontend": "100% (all requested flows passed: cold boot, login, register, ad-gated flow, console-error check)"},
+  "seed_data_creation": "Created throwaway test account test_adflow_99881@test.pl / Test@12345 (non-premium, used to reliably trigger the ad-gated quiz flow since documented free test users ania_t1@test.pl/test_ui_fresh are actually is_premium:true in current DB state - test_credentials.md is slightly stale on this point).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "ania_t1@test.pl and test_ui_fresh@test.pl currently have is_premium=true in the DB despite test_credentials.md saying 'free' - use a fresh registration instead if you need a guaranteed non-premium account to test ad-gated flows reliably. The ad modal only appears for non-premium users under quota, or premium users over their monthly roadmap_generations_limit.",
+  "rca_of_issue": "N/A - no bugs found in this hardening session; this was a clean regression pass."
+}

@@ -6,7 +6,8 @@ let sdk: any = null;
 try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   if (Constants.executionEnvironment !== "storeClient") sdk = require("react-native-google-mobile-ads");
-} catch {
+} catch (error) {
+  console.log("[ads] react-native-google-mobile-ads unavailable, falling back to simulated ads:", error);
   sdk = null;
 }
 
@@ -19,7 +20,12 @@ let started = false;
 export async function initAds() {
   if (!adsAvailable || started) return;
   started = true;
-  await sdk.default().initialize();
+  try {
+    await sdk.default().initialize();
+  } catch (error) {
+    // Missing/placeholder production App ID, no network, etc. — ads just stay off, never crash.
+    console.log("[ads] initialize() failed, ads stay disabled for this session:", error);
+  }
 }
 
 // Resolves true only when the user earned the reward.

@@ -52,8 +52,16 @@ export function AdsProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!showAds) return;
-    lastAdAt.current = Date.now(); // count 5 minutes from login, not from app start
-    initAds().catch(() => {});
+    // Startup ad init must NEVER be able to take the app down — a missing/placeholder AdMob
+    // App ID or a production key swap gone wrong must degrade to "no ads", never crash the
+    // whole screen. initAds()/the native SDK are additionally guarded on their own (see ads.ts),
+    // this is deliberate defense-in-depth around the whole block.
+    try {
+      lastAdAt.current = Date.now(); // count 5 minutes from login, not from app start
+      initAds().catch((error) => console.log("[AdsProvider] initAds failed, continuing without ads:", error));
+    } catch (error) {
+      console.log("[AdsProvider] ad startup crashed, continuing without ads:", error);
+    }
     // time spent in the background does not count toward the next ad
     let bgAt = 0;
     const sub = AppState.addEventListener("change", (s) => {
