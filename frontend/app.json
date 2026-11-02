@@ -16,7 +16,7 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#FA5252"
       },
-      "package": "com.emergent.resetzawodu.zmppx3"
+      "package": "com.emergent.zawodowcy.ai"
     },
     "web": {
       "bundler": "metro",
