@@ -1,0 +1,43 @@
+{
+  "summary": "Tested the 5 AI-cost-reduction changes end-to-end (backend pytest + frontend Playwright on mobile viewport) using ania_t1@test.pl (Premium). All 11 backend tests pass and all frontend flows (login, regenerate recommendations without ad for premium-under-quota, custom-path validation UI for valid/invalid/illegal inputs, roadmap generation, task resources, weekly study-plan block switcher with correct 4-week next-block) work correctly with zero regressions. No 500 errors, red screens, or broken flows found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "app/plan.tsx (pre-existing, not introduced this session)",
+        "issue": "Block switcher chip correctly shows absolute week range ('Tygodnie 9-12' for the 2nd/new block), but the in-card week badge/kicker inside that block still shows relative week numbers starting at 'Tydzień 1' instead of the absolute 'Tydzień 9'. Minor cosmetic inconsistency, not caused by this session's 8->4 week change (the AI prompt's 'week' field is always 1..N relative to the current block by design) - low priority, can be left as-is or fixed by offsetting w.week display by cumulative previous weeks."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter_ai_cost_reduction.py",
+    "/app/test_reports/pytest/pytest_iter_ai_cost_reduction.xml"
+  ],
+  "action_items": [
+    "No blocking issues found - all 5 approved changes verified working correctly.",
+    "Optional/low-priority: consider offsetting in-card week number display in plan.tsx to match the absolute week range shown on the block-switcher chip (cosmetic only)."
+  ],
+  "critical_code_review_comments": [
+    "validate_profession() (jev.py + server.py ~503) correctly fails OPEN on classifier errors, good resilience pattern; threshold 0.35 on noul score worked correctly for all 5 tested cases (Elektryk/Pielęgniarka valid, banan/xyz123qzpl/złodziej invalid) via both direct API test and UI (Spawacz TIG valid -> proceeded to roadmap; banan invalid -> rejection shown).",
+    "RECS_MONTHLY_GENERATIONS=25 and PREMIUM_MONTHLY_GENERATIONS=25 constants correctly surfaced via /api/premium and login response; counter recommendations_generations_used correctly incremented 0->1 after a generate call, confirmed via UI (Profile 'Wygeneruj nowe propozycje' skipped ad for premium-under-quota) and pytest.",
+    "/api/recommendations/generate now produces 8 total AI careers (4 now + 4 future) plus any pre-existing pinned/custom careers merged in - verified via pytest (10 total with 2 pre-existing custom entries) and matches UI showing 'Grafik komputerowy'/'Elektryk' (100% dopasowania, custom entries) alongside AI-generated ones.",
+    "plan.tsx block-switcher week-range calculation (lines ~487-491) correctly derives start/end week from each block's own plan.weeks.length instead of a hardcoded 8, verified visually: old pre-existing 8-week block showed 'Tygodnie 1-8' chip, newly generated block correctly showed 'Tygodnie 9-12' chip after requesting next block.",
+    "i18n: pl.ts/en.ts/de.ts/nl.ts nextBlockButton/nextBlockAdNotice/reasonNextBlock all correctly updated from '8 tygodni'/'8 weeks' to '4 tygodnie'/'4 weeks' equivalents - verified in pl.ts via grep and in live UI ('Ułóż plan na kolejne 4 tygodnie' button rendered correctly).",
+    "task resources endpoint (/api/roadmap/tasks/{id}/resources) still returns well-formed JSON (overview, steps, free_tips, specializations, time_estimate, resources[]) after the trimmed resource-list-size prompt change (4-5 resources returned, no parsing errors)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter_ai_cost_reduction.py (new pytest file for this iteration)"
+  ],
+  "success_rate": {"backend": "100% (11/11 pytest)", "frontend": "100% (all requested UI flows passed)"},
+  "seed_data_creation": "Added custom career 'Spawacz TIG' to ania_t1@test.pl's recommendations via UI custom-path flow during testing (valid-profession test case); this is harmless additive test data, same pattern as pre-existing custom entries.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "ania_t1@test.pl is confirmed Premium (is_premium=true) with existing recommendations, 1+ career paths, and both an old pre-existing 8-week study-plan block and a newly-generated 4-week block (2 blocks total now, chips 'Tygodnie 1-8' and 'Tygodnie 9-12'). Login requires using testID selectors auth-mode-login/auth-email-input/auth-password-input/auth-submit-button (plain text 'Zaloguj się' click was flaky/non-deterministic in automation, likely a timing/overlay issue during the country-select->auth transition animation - not a functional bug, just use testIDs for reliable automation). Login response key is 'access_token' not 'token'.",
+  "rca_of_issue": "N/A - no functional bugs found this session; only a pre-existing minor cosmetic week-numbering inconsistency noted above (not introduced by this change set)."
+}

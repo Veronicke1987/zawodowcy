@@ -23,7 +23,7 @@ export default function Quiz() {
   const router = useRouter();
   const { edit } = useLocalSearchParams<{ edit?: string }>();
   const { refresh, t, lang } = useAuth();
-  const { watchAd, showAds } = useAds();
+  const { watchRecommendationsAd, showAds } = useAds();
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Answers>({ personality: {} });
   const [loadingPrev, setLoadingPrev] = useState(!!edit);
@@ -58,7 +58,7 @@ export default function Quiz() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     if (!isLast) return setStep(step + 1);
     // every AI generation is ad-gated, including the very first onboarding quiz.
-    if (!(await watchAd(t.ads.reasonGetCareers))) return;
+    if (!(await watchRecommendationsAd(t.ads.reasonGetCareers))) return;
     setSaving(true);
     setError("");
     try {

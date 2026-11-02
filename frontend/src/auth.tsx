@@ -20,6 +20,8 @@ export type User = {
   ui_language?: Lang;
   roadmap_generations_used?: number;
   roadmap_generations_limit?: number;
+  recommendations_generations_used?: number;
+  recommendations_generations_limit?: number;
 };
 
 // Set by country-select.tsx (the one-time, pre-auth screen) right before the very first

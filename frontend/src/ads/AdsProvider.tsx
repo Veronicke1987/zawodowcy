@@ -24,9 +24,13 @@ type AdsCtx = {
   // ad UNLESS they've already used their monthly quota of free path generations, in which
   // case they also see rewarded ads to continue. Building a path always costs 2 ads.
   watchRoadmapAd: (reason: string) => Promise<boolean>;
+  // Same idea, for (re)generating the career-recommendations list: Premium users skip the ad
+  // unless they've used their monthly quota of free regenerations (see RECS_MONTHLY_GENERATIONS
+  // server-side), in which case they also watch 1 ad — same cost a free user already pays.
+  watchRecommendationsAd: (reason: string) => Promise<boolean>;
 };
 
-const Ctx = createContext<AdsCtx>({ showAds: false, watchAd: async () => true, watchRoadmapAd: async () => true });
+const Ctx = createContext<AdsCtx>({ showAds: false, watchAd: async () => true, watchRoadmapAd: async () => true, watchRecommendationsAd: async () => true });
 export const useAds = () => useContext(Ctx);
 
 const ROADMAP_AD_COUNT = 2;
@@ -148,6 +152,30 @@ export function AdsProvider({ children }: { children: React.ReactNode }) {
     [user?.is_premium, quotaExceeded, watchAd],
   );
 
+  const recsQuotaExceeded = !!user?.is_premium && (user.recommendations_generations_used ?? 0) >= (user.recommendations_generations_limit ?? Infinity);
+  const watchRecommendationsAd = useCallback(
+    (reason: string) => {
+      if (!user?.is_premium) return watchAd(reason);
+      if (!recsQuotaExceeded) return Promise.resolve(true);
+      return new Promise<boolean>((resolve) => {
+        busy.current = true;
+        setSim({
+          kind: "rewarded",
+          reason,
+          premiumQuota: true,
+          stage: "intro",
+          index: 1,
+          total: 1,
+          resolve: (ok) => {
+            busy.current = false;
+            resolve(ok);
+          },
+        });
+      });
+    },
+    [user?.is_premium, recsQuotaExceeded, watchAd],
+  );
+
   // Interstitial roughly every 5 minutes of active use, never on top of another ad.
   useEffect(() => {
     if (!showAds) return;
@@ -180,7 +208,7 @@ export function AdsProvider({ children }: { children: React.ReactNode }) {
   const onNextAd = () => setSim((prev) => (prev ? { ...prev, stage: "intro", index: prev.index + 1 } : prev));
 
   return (
-    <Ctx.Provider value={{ showAds, watchAd, watchRoadmapAd }}>
+    <Ctx.Provider value={{ showAds, watchAd, watchRoadmapAd, watchRecommendationsAd }}>
       {children}
       <AdModal
         sim={sim}

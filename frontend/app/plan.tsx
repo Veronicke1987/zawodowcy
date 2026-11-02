@@ -390,7 +390,7 @@ function DailyItemSheet({ item, onClose }: { item: DailyItem | null; onClose: ()
   );
 }
 
-// ------------------------------------------------------------------ weekly study plan (8-week blocks, shared cache, 1 ad per (re)generate)
+// ------------------------------------------------------------------ weekly study plan (4-week blocks, shared cache, 1 ad per (re)generate)
 function WeeklyPlanTab() {
   const insets = useSafeAreaInsets();
   const styles = useStyles();
@@ -483,9 +483,16 @@ function WeeklyPlanTab() {
         <>
           {blocks.length > 1 ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }} testID="plan-block-switcher">
-              {blocks.map((b) => (
-                <Chip key={b.index} testID={`plan-block-chip-${b.index}`} label={t.plan.blockChipLabel(b.index * 8 + 1, b.index * 8 + 8)} selected={b.index === block?.index} onPress={() => setBlockIndex(b.index)} />
-              ))}
+              {blocks.map((b, i) => {
+                // Week range shown per block from each block's OWN week count (not a fixed
+                // constant) — correct both for new 4-week blocks and any older 8-week block
+                // a path may already have generated before this size changed.
+                const startWeek = blocks.slice(0, i).reduce((sum, bb) => sum + (bb.plan?.weeks?.length || 4), 0) + 1;
+                const endWeek = startWeek + (b.plan?.weeks?.length || 4) - 1;
+                return (
+                  <Chip key={b.index} testID={`plan-block-chip-${b.index}`} label={t.plan.blockChipLabel(startWeek, endWeek)} selected={b.index === block?.index} onPress={() => setBlockIndex(b.index)} />
+                );
+              })}
             </ScrollView>
           ) : null}
           <View style={styles.summary} testID="plan-summary">

@@ -24,7 +24,7 @@ export default function Profile() {
   const { colors, name } = useTheme();
   const router = useRouter();
   const { user, logout, refresh, t, lang } = useAuth();
-  const { watchAd, showAds } = useAds();
+  const { watchRecommendationsAd, showAds } = useAds();
   const [regen, setRegen] = useState(false);
   const [msg, setMsg] = useState("");
   const [savingCountry, setSavingCountry] = useState<string | null>(null);
@@ -62,7 +62,7 @@ export default function Profile() {
 
   const regenerate = async () => {
     setMsg("");
-    if (!(await watchAd(t.ads.reasonRegenerateCareers))) return;
+    if (!(await watchRecommendationsAd(t.ads.reasonRegenerateCareers))) return;
     setRegen(true);
     try {
       await api("/recommendations/generate", { method: "POST" });

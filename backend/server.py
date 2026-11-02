@@ -32,6 +32,8 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone  # noqa: E402
+from jev import get_jev_client  # noqa: E402
+from typesafe_sdk import Noul  # noqa: E402
 
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -270,7 +272,8 @@ async def public_user(u: UserDoc) -> dict:
     return {"id": u.id, "email": u.email, "name": u.name, "role": u.role, "has_profile": bool(profile),
             "is_premium": is_premium(u), "streak": streak, "country": country,
             "ui_language": effective_language(u, country),
-            "roadmap_generations_used": await roadmap_gen_used(u.id), "roadmap_generations_limit": PREMIUM_MONTHLY_GENERATIONS}
+            "roadmap_generations_used": await roadmap_gen_used(u.id), "roadmap_generations_limit": PREMIUM_MONTHLY_GENERATIONS,
+            "recommendations_generations_used": await recs_gen_used(u.id), "recommendations_generations_limit": RECS_MONTHLY_GENERATIONS}
 
 
 # ---------------------------------------------------------------- LLM helpers
@@ -500,22 +503,31 @@ async def apply_cached_roadmap(user_id: str, job_id: str, milestones: list, qual
 async def validate_profession(title: str, language: str = "pl", country: str = "PL") -> tuple[bool, str]:
     """Blocks custom-path titles that are illegal/criminal activities, or that simply
     aren't a real job/profession at all (so the roadmap generator never has to hallucinate
-    a path for nonsense input). Fails OPEN (allows) if the classifier call itself errors,
-    so a transient API hiccup never blocks a legitimate user."""
-    lang_name = LANGUAGE_NAMES.get(language, "polskim")
+    a path for nonsense input). This is a single fixed yes/no decision, so it runs on Jev
+    (fast, cheap classifier) instead of a full LLM call — no prompt/JSON-parsing overhead.
+    Fails OPEN (allows) if the classifier call itself errors, so a transient API hiccup
+    never blocks a legitimate user. No AI-generated reason text anymore either (the caller
+    already has a good-enough generic fallback message for the rare invalid case)."""
     cfg = COUNTRY_CONFIG.get((country or "PL").upper()) or COUNTRY_CONFIG["PL"]
-    prompt = f"""Oceń wpisany przez użytkownika tekst: "{title}"
-Czy to prawdziwy, legalny zawód lub stanowisko pracy, które realnie istnieje na rynku pracy w kraju: {cfg['name']}?
-Odpowiedz "nie" (valid=false), jeśli to:
-- czynność przestępcza lub nielegalna w kraju {cfg['name']} (np. złodziej, zabójca/płatny zabójca, gwałciciel, handlarz narkotykami,
-  "pirat drogowy"/nielegalny przewoźnik, oszust, haker przestępczy, stręczyciel, przemytnik),
-- cokolwiek, co NIE jest zawodem/stanowiskiem pracy (np. przedmiot, zwierzę, jedzenie, miejsce, uczucie, czynność
-  abstrakcyjna typu "być", zaimek typu "ja", losowy tekst, wulgaryzm, puste/bez sensu).
-W razie wątpliwości, czy to realny i legalny zawód, odpowiedz "tak" (valid=true) — blokuj tylko oczywiste przypadki.
-Zwróć TYLKO JSON: {{"valid": true/false, "reason": "krótkie uzasadnienie W JĘZYKU {lang_name.upper()} (max 1 zdanie), pokazywane użytkownikowi tylko gdy valid=false"}}"""
     try:
-        data = await ask_llm(FAST_MODEL, SYSTEM_PL, prompt)
-        return bool(data.get("valid", True)), str(data.get("reason") or "")
+        response = await get_jev_client().system_one(
+            model="jev-latest",
+            state={"text": title, "country": cfg["name"]},
+            questions={
+                "is_valid_profession": Noul(
+                    instructions=(
+                        "Does this text name a real, legal job/profession/occupation that exists in the "
+                        "labor market of the given country? Answer NO if it is a criminal/illegal activity "
+                        "(e.g. thief, hitman, rapist, drug dealer, scammer, criminal hacker, pimp, smuggler), "
+                        "or if it is simply not an occupation at all (e.g. an object, animal, food, place, "
+                        "feeling, abstract verb like 'to be', a pronoun, random text, profanity, or nonsense). "
+                        "When in doubt whether it's a real, legal profession, answer YES — reject only obvious cases."
+                    )
+                ),
+            },
+        )
+        valid = response.nouls["is_valid_profession"].noul >= 0.35
+        return valid, ""
     except Exception:
         logger.exception("profession validation failed, failing open")
         return True, ""
@@ -976,8 +988,8 @@ async def run_recommendations(user_id: str, answers: dict, job_id: str, country:
 Rynek pracy/kraj: {cfg['name']} (portale: {cfg['job_portals']}).
 
 Zaproponuj zawody dopasowane do tej osoby, REALNE dla rynku pracy w {cfg['name']} (nie dla innego kraju), w dwóch kategoriach:
-- "now": 5 zawodów, które może wykonywać JUŻ TERAZ z obecnymi umiejętnościami (wymagania typowych ofert spełnia lub prawie spełnia),
-- "future": 5 zawodów, które do niej pasują, ale wymagają zdobycia nowych umiejętności.
+- "now": 4 zawody, które może wykonywać JUŻ TERAZ z obecnymi umiejętnościami (wymagania typowych ofert spełnia lub prawie spełnia),
+- "future": 4 zawody, które do niej pasują, ale wymagają zdobycia nowych umiejętności.
 Nie ograniczaj się do oczywistych zawodów — uwzględnij też mniej znane stanowiska realnie występujące w ogłoszeniach w {cfg['name']}
 (np. wdrożeniowiec systemów ERP, specjalista ds. wdrożeń, koordynator logistyki, analityk danych, specjalista ds. obsługi klienta B2B itp.).
 Weź pod uwagę to, czego użytkownik nie lubi, jego charakter i odporność zawodu na automatyzację przez AI.
@@ -985,9 +997,9 @@ Weź pod uwagę to, czego użytkownik nie lubi, jego charakter i odporność zaw
 {MODE_RULES.get(answers.get("reset_mode") or "search", MODE_RULES["search"])}
 
 Aby oszczędzić tokeny, użyj KRÓTKICH kluczy JSON dokładnie jak w przykładzie (bez pełnych nazw pól). Zwróć JSON:
-{{"summary": "1 zwięzłe zdanie, maks. 15 słów — opis profilu użytkownika: mocne strony i kierunek, w jakim warto szukać pracy",
- "now": [{{"t": "nazwa stanowiska jak w ogłoszeniach w {cfg['name']}", "i": "branża", "s": "1 zdanie, maks. 12 słów — czym dokładnie zajmuje się osoba na tym stanowisku na co dzień",
-          "w": "1 zdanie, maks. 12 słów — dlaczego akurat ten zawód realnie pasuje do TEJ osoby",
+{{"summary": "1 zwięzłe zdanie, maks. 12 słów — opis profilu użytkownika: mocne strony i kierunek, w jakim warto szukać pracy",
+ "now": [{{"t": "nazwa stanowiska jak w ogłoszeniach w {cfg['name']}", "i": "branża", "s": "1 zdanie, maks. 10 słów — czym dokładnie zajmuje się osoba na tym stanowisku na co dzień",
+          "w": "1 zdanie, maks. 10 słów — dlaczego akurat ten zawód realnie pasuje do TEJ osoby",
           "m": 0-100, "sa": "widełki wynagrodzenia w walucie kraju {cfg['name']}, format: {cfg['currency_fmt']}", "d": "high|medium|low", "r": "low|medium|high",
           "g": ["czego jeszcze brakuje, max 2 krótkie frazy"]}}],
  "future": [ ...ten sam format... ]}}
@@ -1034,6 +1046,7 @@ async def generate_recommendations(user: UserDoc = Depends(current_user)):
         {"$set": {"user_id": user.id, "status": "pending", "job_id": job_id, "started_at": now_iso(), "country": user.country}},
         upsert=True,
     )
+    await bump_recs_gen(user.id)
     spawn(run_recommendations(user.id, prof["answers"], job_id, user.country, effective_language(user)))
     return {"status": "pending"}
 
@@ -1084,11 +1097,11 @@ ich szukać, a dla wsparcia instytucjonalnego użyj lokalnego odpowiednika: {cfg
 wymaga to studiów — podaj nazwę kierunku (ew. 1-2 pokrewne kierunki) i wymień 2-3 PRZYKŁADOWE, różne, realne uczelnie w {cfg['name']}, które
 go oferują, jako opcje do wyboru — NIGDY nie wskazuj jednej konkretnej uczelni jako jedynej słusznej drogi, i NIGDY nie podawaj uczelni spoza
 kraju {cfg['name']}. Zwróć JSON:
-{{"description": "1 zwięzłe zdanie, maks. 15 słów — opis zawodu: czym się zajmuje i jak wygląda typowy dzień pracy",
- "daily_tasks": ["5-6 typowych codziennych zadań, pełne zdania, maks. 8 słów każde, nie pojedyncze słowa"],
- "pros": ["4-5 plusów, pełne zdania, maks. 8 słów każdy, z krótkim wyjaśnieniem dlaczego to plus"], "cons": ["3-4 minusy, pełne zdania, maks. 8 słów każdy, z krótkim wyjaśnieniem dlaczego to minus"],
- "requirements": ["6-9 typowych wymagań z ogłoszeń w {cfg['name']}, krótkie frazy, np. wykształcenie, znajomość KONKRETNEGO oprogramowania/narzędzi realnie używanych w tym zawodzie w {cfg['name']} (nazwij je z imienia, nie ogólnikowo), uprawnienia, języki"],
- "how_to_start": ["5-6 konkretnych, nazwanych z imienia kroków realnych dla rynku {cfg['name']}, każdy pełnym zdaniem, maks. 9 słów — jeśli nazwa kursu/uczelni grozi przekroczeniem limitu, pomiń resztę kontekstu, ale zmieść się w limicie"],
+{{"description": "1 zwięzłe zdanie, maks. 13 słów — opis zawodu: czym się zajmuje i jak wygląda typowy dzień pracy",
+ "daily_tasks": ["4-5 typowych codziennych zadań, pełne zdania, maks. 7 słów każde, nie pojedyncze słowa"],
+ "pros": ["3-4 plusy, pełne zdania, maks. 7 słów każdy, z krótkim wyjaśnieniem dlaczego to plus"], "cons": ["2-3 minusy, pełne zdania, maks. 7 słów każdy, z krótkim wyjaśnieniem dlaczego to minus"],
+ "requirements": ["5-7 typowych wymagań z ogłoszeń w {cfg['name']}, krótkie frazy, np. wykształcenie, znajomość KONKRETNEGO oprogramowania/narzędzi realnie używanych w tym zawodzie w {cfg['name']} (nazwij je z imienia, nie ogólnikowo), uprawnienia, języki"],
+ "how_to_start": ["4-5 konkretnych, nazwanych z imienia kroków realnych dla rynku {cfg['name']}, każdy pełnym zdaniem, maks. 8 słów — jeśli nazwa kursu/uczelni grozi przekroczeniem limitu, pomiń resztę kontekstu, ale zmieść się w limicie"],
  "career_levels": ["4-5 kolejnych, REALNYCH, oficjalnie istniejących w {cfg['name']} stanowisk/stopni awansu w TYM KONKRETNYM zawodzie, od wejściowego do najwyższego — np. dla nauczyciela: nauczyciel stażysta, kontraktowy, mianowany, dyplomowany, wicedyrektor, dyrektor szkoły; dla programisty: junior, mid, senior, lead, CTO. NIE wymyślaj nazw stanowisk, których nie ma w tym zawodzie — jeśli nie masz pewności, użyj najbardziej powszechnie znanej, rzeczywistej struktury awansu w {cfg['name']}."]}}"""
     try:
         detail = await ask_llm(FAST_MODEL, system_message(country, language), prompt)
@@ -1108,6 +1121,10 @@ kraju {cfg['name']}. Zwróć JSON:
 PREMIUM_PATH_LIMIT = 3
 PREMIUM_MONTHLY_GENERATIONS = 25  # new career-path generations per month included with Premium; the weekly/daily
 # study plan for an already-generated path is always free and never counts against this.
+RECS_MONTHLY_GENERATIONS = 25  # (re)generations of the career-recommendations list per month included with
+# Premium — mirrors PREMIUM_MONTHLY_GENERATIONS above. Free users already pay 1 ad per regenerate (see
+# reasonRegenerateCareers in AdsProvider); past this quota, Premium also needs to watch an ad to continue,
+# since each call is a full, non-cacheable AI generation of 8 personalized careers.
 PREMIUM_PLANS = {
     "monthly": {"label": "Miesięczny", "price": "19 zł", "period": "miesiąc"},
     "yearly": {"label": "Roczny", "price": "149,99 zł", "period": "rok"},
@@ -1142,11 +1159,24 @@ async def bump_roadmap_gen(user_id: str):
     await db.gen_usage.update_one({"user_id": user_id, "month": _gen_month_key()}, {"$inc": {"count": 1}}, upsert=True)
 
 
+async def recs_gen_used(user_id: str) -> int:
+    doc = await db.gen_usage.find_one({"user_id": user_id, "month": _gen_month_key()})
+    return (doc or {}).get("recs_count", 0)
+
+
+async def bump_recs_gen(user_id: str):
+    """Counts one career-recommendations-list generation toward the Premium monthly quota
+    (stored alongside the roadmap counter, same per-user-per-month document)."""
+    await db.gen_usage.update_one({"user_id": user_id, "month": _gen_month_key()}, {"$inc": {"recs_count": 1}}, upsert=True)
+
+
 @api.get("/premium")
 async def premium_info(user: UserDoc = Depends(current_user)):
     return {"is_premium": is_premium(user), "premium": user.premium, "plans": PREMIUM_PLANS,
             "path_limit": PREMIUM_PATH_LIMIT, "roadmap_generations_used": await roadmap_gen_used(user.id),
-            "roadmap_generations_limit": PREMIUM_MONTHLY_GENERATIONS, "demo": True}
+            "roadmap_generations_limit": PREMIUM_MONTHLY_GENERATIONS,
+            "recommendations_generations_used": await recs_gen_used(user.id),
+            "recommendations_generations_limit": RECS_MONTHLY_GENERATIONS, "demo": True}
 
 
 @api.post("/premium/subscribe")
@@ -1207,15 +1237,15 @@ kontraktowy → mianowany → dyplomowany → wicedyrektor → dyrektor szkoły;
 dla lekarza: lekarz stażysta → rezydent → specjalista → ordynator (DOSTOSUJ te przykładowe nazwy do realiów kraju {cfg['name']},
 nie kopiuj ich dosłownie jeśli kraj to nie Polska). NIE wymyślaj stanowisk, których nie ma w tym zawodzie — jeśli nie masz pewności,
 użyj najbardziej powszechnie znanej, rzeczywistej struktury awansu w tym konkretnym zawodzie w {cfg['name']}.
-Do każdego stanowiska podaj 3-5 MAŁYCH punktów (zadań), które użytkownik musi zdobyć/wykonać, aby dostać to stanowisko —
+Do każdego stanowiska podaj 3-4 MAŁE punkty (zadania), które użytkownik musi zdobyć/wykonać, aby dostać to stanowisko —
 opartych na wymaganiach z prawdziwych ofert pracy w {cfg['name']} (np. studia z danej dziedziny, kurs Excela, znajomość KONKRETNEGO
 oprogramowania/narzędzia realnie używanego w tym zawodzie na rynku {cfg['name']} — nazwij je z imienia, a nie ogólnikowo, i nigdy nie
 zakładaj polskiego oprogramowania/instytucji, jeśli kraj to nie Polska, prawo jazdy odpowiedniej kategorii, certyfikat, znajomość języka
 na odpowiednim poziomie, lata doświadczenia). Uwzględnij to, co użytkownik już ma — takie zadania oznacz "already_has": true.
 Zwróć JSON:
-{{"milestones": [{{"title": "stanowisko", "description": "1 zdanie, maks. 16 słów — czym się zajmuje na tym stanowisku", "salary": "widełki wynagrodzenia w walucie kraju {cfg['name']}", "years": "np. 0-2 lata",
+{{"milestones": [{{"title": "stanowisko", "description": "1 zdanie, maks. 14 słów — czym się zajmuje na tym stanowisku", "salary": "widełki wynagrodzenia w walucie kraju {cfg['name']}", "years": "np. 0-2 lata",
    "requirements": ["wymagania z ofert w {cfg['name']}, pełne frazy, nie pojedyncze słowa"],
-   "tasks": [{{"title": "krótka nazwa zadania", "description": "1 zdanie, maks. 12 słów — co dokładnie trzeba zrobić i jak to zdobyć",
+   "tasks": [{{"title": "krótka nazwa zadania", "description": "1 zdanie, maks. 10 słów — co dokładnie trzeba zrobić i jak to zdobyć",
               "type": "studies|course|skill|certificate|language|license|experience|other", "already_has": false}}]}}]}}"""
     try:
         data = await ask_llm(ANALYSIS_MODEL, system_message(country, language), prompt)
@@ -1418,15 +1448,15 @@ i "free_tips" zawsze podawaj NAZWY WŁASNE — konkretny kurs/szkolenie, konkret
 ({cfg['employment_agency']}) i co trzeba tam zrobić. Dla STUDIÓW (patrz wyżej) podawaj kierunek + kilka przykładowych uczelni w
 {cfg['name']}, nigdy jedną wskazaną z imienia jako jedyną, i nigdy uczelnię spoza tego kraju.
 Zwróć JSON:
-{{"overview": "1 zwięzłe zdanie, maks. 15 słów — czym jest ten punkt i dlaczego jest ważny",
- "steps": ["4-5 konkretnych, nazwanych z imienia kroków jak to zdobyć, każdy pełnym zdaniem, maks. 11 słów — jeśli nazwa kursu/uczelni grozi przekroczeniem limitu, pomiń resztę kontekstu, ale zmieść się w limicie"],
- "free_tips": ["2-4 konkretne, nazwane z imienia sposoby zrobienia tego za darmo lub taniej, pełne zdania, maks. 9 słów każdy"],
+{{"overview": "1 zwięzłe zdanie, maks. 13 słów — czym jest ten punkt i dlaczego jest ważny",
+ "steps": ["3-4 konkretne, nazwane z imienia kroki jak to zdobyć, każdy pełnym zdaniem, maks. 10 słów — jeśli nazwa kursu/uczelni grozi przekroczeniem limitu, pomiń resztę kontekstu, ale zmieść się w limicie"],
+ "free_tips": ["2-3 konkretne, nazwane z imienia sposoby zrobienia tego za darmo lub taniej, pełne zdania, maks. 8 słów każdy"],
  "specializations": ["tylko dla studiów/kursów: możliwe specjalizacje, inaczej pusta lista"],
  "time_estimate": "ile to zwykle trwa",
  "resources": [{{"type": "youtube|course|studies|urzad_pracy|webinar|certificate|article", "platform": "np. YouTube, Coursera, Udemy, LinkedIn Learning, Google (dla studiów: nazwa uczelni w {cfg['name']} jako JEDEN z kilku przykładów)",
-                "title": "konkretna, realna nazwa kursu/kanału/szkolenia, a dla studiów: nazwa kierunku (nie pojedyncza narzucona uczelnia)", "description": "1 zdanie, maks. 8 słów — co dokładnie zawiera i dlaczego warto",
+                "title": "konkretna, realna nazwa kursu/kanału/szkolenia, a dla studiów: nazwa kierunku (nie pojedyncza narzucona uczelnia)", "description": "1 zdanie, maks. 7 słów — co dokładnie zawiera i dlaczego warto",
                 "query": "fraza wyszukiwania w języku {query_lang_name}"}}]}}
-Podaj 5-8 zasobów, w tym przynajmniej jeden YouTube i jeden urzad_pracy."""
+Podaj 4-5 zasobów, w tym przynajmniej jeden YouTube i jeden urzad_pracy."""
     try:
         data = await ask_llm(FAST_MODEL, system_message(path_country, language), prompt)
     except Exception:
@@ -1476,7 +1506,7 @@ async def generate_weekly_plan_ai(context: str, country: str, language: str) -> 
     prompt = f"""{context}
 Rynek pracy/kraj: {cfg['name']}.
 
-Ułóż realistyczny plan nauki na 8 tygodni, skupiony na najbliższych punktach drogi. Każdy tydzień: cel i 3-5 konkretnych zadań z liczbą godzin.
+Ułóż realistyczny plan nauki na 4 tygodnie, skupiony na najbliższych punktach drogi. Każdy tydzień: cel i 3-4 konkretne zadania z liczbą godzin.
 Uwzględnij darmowe materiały, kursy z lokalnego odpowiednika urzędu pracy w {cfg['name']} ({cfg['employment_agency']}), ćwiczenia praktyczne
 i budowanie portfolio/CV. NIGDY nie zakładaj polskich instytucji/programów (urząd pracy, KFS, bon szkoleniowy), jeśli kraj to nie Polska.
 Nie wymyślaj konkretnych, brzmiących oficjalnie nazw firm/akademii/programów, których istnienia nie jesteś pewien — używaj ogólnych,
@@ -1484,11 +1514,11 @@ realnych kategorii (platformy typu YouTube/Udemy/Coursera, lokalne programy wspa
 Zwróć JSON:
 {{"hours_per_week": liczba, "summary": "1 zdanie, maks. 10 słów — podsumowanie planu i podejścia",
  "weeks": [{{"week": 1, "focus": "temat tygodnia", "goal": "1 zdanie, maks. 12 słów — co umiesz po tygodniu",
-            "items": [{{"title": "zadanie", "description": "1 zdanie, maks. 12 słów — jak dokładnie to zrobić, z konkretami", "hours": liczba}}]}}],
- "tips": ["3 rady motywacyjne/organizacyjne, pełne zdania, maks. 9 słów każda"]}}"""
-    # 8 weeks x up to 5 items, each with full-sentence descriptions, routinely runs past the
-    # default 4096-token cap and gets cut off mid-JSON — give this call explicit headroom.
-    plan = await ask_llm(ANALYSIS_MODEL, system_message(country, language), prompt, max_tokens=8192)
+            "items": [{{"title": "zadanie", "description": "1 zdanie, maks. 10 słów — jak dokładnie to zrobić, z konkretami", "hours": liczba}}]}}],
+ "tips": ["2-3 rady motywacyjne/organizacyjne, pełne zdania, maks. 8 słów każda"]}}"""
+    # 4 weeks x up to 4 items, each with full-sentence descriptions, comfortably fits well under
+    # the default 4096-token cap — small headroom kept for safety against truncation.
+    plan = await ask_llm(ANALYSIS_MODEL, system_message(country, language), prompt, max_tokens=4096)
     for w in plan.get("weeks", []):
         for it in w.get("items", []):
             it["id"] = uuid.uuid4().hex[:10]
@@ -1500,7 +1530,7 @@ def clone_weekly_plan(plan: dict) -> dict:
     return {**plan, "weeks": [{**w, "items": [{**it, "done": False} for it in w.get("items", [])]} for w in plan.get("weeks", [])]}
 
 
-WEEKLY_PLAN_REFRESH_EVERY = 4  # every Nth time a given (career, pending-signature) combo is requested, regenerate via AI and overwrite the cache, instead of serving it forever
+WEEKLY_PLAN_REFRESH_EVERY = 30  # every Nth time a given (career, pending-signature) combo is requested, regenerate via AI and overwrite the cache, instead of serving it forever
 
 
 async def get_or_build_weekly_plan(cache_key: str, sig: str, career_title: str, pending: list, country: str, language: str) -> dict:
@@ -1633,7 +1663,7 @@ Dni tego tygodnia w kolejności chronologicznej (ten tydzień NIE zawsze zaczyna
 {day_lines}
 Czas na naukę: {time_desc}.
 
-Dla KAŻDEGO dnia nauki (pomijając dni wolne) zaplanuj 1-3 konkretne, wykonalne TEGO DNIA czynności
+Dla KAŻDEGO dnia nauki (pomijając dni wolne) zaplanuj 1-2 konkretne, wykonalne TEGO DNIA czynności
 (np. "Obejrzyj wprowadzenie do funkcji VLOOKUP w Excelu na YouTube"), każdą powiązaną z ID jednego z zadań z listy
 powyżej (pole task_id), chyba że to czynność ogólna (np. szukanie ofert, przegląd postępów) — wtedy task_id = null.
 WAŻNE — realizm: każda czynność musi dać się faktycznie zrobić w czasie {time_desc} JEDNEGO dnia. NIGDY nie pisz czynności
@@ -1652,7 +1682,7 @@ dniu nauki z listy powyżej — sformułowaną jako mały krok lub przegląd pos
 "Sprawdź swoje postępy w nauce na studiach/kursie w tym tygodniu" albo "Zrealizuj kolejny moduł kursu").
 Nie planuj nic w dni wolne.
 Zwróć JSON z polem "weekday" = numer dnia tygodnia zgodnie z datami powyżej (0=poniedziałek, 1=wtorek, 2=środa, 3=czwartek, 4=piątek, 5=sobota, 6=niedziela):
-{{"days": [{{"weekday": 0-6, "items": [{{"title": "krótka nazwa (max 5 słów)", "description": "max 12 słów, co dokładnie zrobić",
+{{"days": [{{"weekday": 0-6, "items": [{{"title": "krótka nazwa (max 5 słów)", "description": "max 10 słów, co dokładnie zrobić",
             "minutes": liczba, "task_id": "id z listy lub null", "long_term": true/false}}]}}]}}"""
     status_field = "daily_plan.next_status" if is_next else "daily_plan.status"
     job_field = "daily_plan.next_job_id" if is_next else "daily_plan.job_id"
@@ -1826,13 +1856,13 @@ WAŻNE — bądź KONKRETNY, nie ogólnikowy: w "steps" i "free_tips" podawaj NA
 dostępną w {cfg['name']} ({cfg['employment_agency']}) — nie pisz ogólnie "znajdź kurs" czy "skorzystaj ze szkolenia". Jeśli dotyczy studiów,
 nigdy nie wskazuj jednej konkretnej uczelni w {cfg['name']} jako jedynej słusznej — podaj kierunek i kilka przykładowych uczelni, które go oferują.
 Zwróć JSON:
-{{"overview": "1 zdanie, maks. 15 słów — czym jest ta czynność i dlaczego pomaga w drodze do celu",
- "steps": ["3-4 konkretne, nazwane z imienia kroki, każdy pełnym zdaniem, maks. 11 słów — jeśli nazwa kursu/szkolenia grozi przekroczeniem limitu, pomiń resztę kontekstu, ale zmieść się w limicie"],
- "free_tips": ["2-3 konkretne, nazwane z imienia sposoby zrobienia tego za darmo, pełne zdania, maks. 9 słów każdy"], "specializations": [], "time_estimate": "ile to zwykle trwa",
+{{"overview": "1 zdanie, maks. 13 słów — czym jest ta czynność i dlaczego pomaga w drodze do celu",
+ "steps": ["3 konkretne, nazwane z imienia kroki, każdy pełnym zdaniem, maks. 10 słów — jeśli nazwa kursu/szkolenia grozi przekroczeniem limitu, pomiń resztę kontekstu, ale zmieść się w limicie"],
+ "free_tips": ["2 konkretne, nazwane z imienia sposoby zrobienia tego za darmo, pełne zdania, maks. 8 słów każdy"], "specializations": [], "time_estimate": "ile to zwykle trwa",
  "resources": [{{"type": "youtube|course|studies|urzad_pracy|webinar|certificate|article", "platform": "np. YouTube, Coursera, Google",
-                "title": "konkretna, realna nazwa kursu/kanału/szkolenia (nie ogólnik)", "description": "1 zdanie, maks. 8 słów — co dokładnie zawiera",
+                "title": "konkretna, realna nazwa kursu/kanału/szkolenia (nie ogólnik)", "description": "1 zdanie, maks. 7 słów — co dokładnie zawiera",
                 "query": "fraza wyszukiwania w języku {query_lang_name}"}}]}}
-Podaj 4-6 zasob\u00f3w, w tym przynajmniej jeden YouTube."""
+Podaj 3-4 zasoby, w tym przynajmniej jeden YouTube."""
     try:
         data = await ask_llm(FAST_MODEL, system_message(item_country, item_language), prompt)
     except Exception:
