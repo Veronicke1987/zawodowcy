@@ -1,0 +1,39 @@
+{
+  "summary": "Tested the reduced AI prompt word-count budgets (~1/3 shorter) across all 6 ask_llm() call sites: recommendations, career detail, roadmap milestones/tasks, task resources, weekly study plan, daily plan. Created a fresh test user + fresh custom career (to bypass career_templates cache populated under the OLD prompts) and ran the full flow end-to-end. All 5 pytest tests PASSED (no JSON parse errors, no truncation, no empty content in any of ~7 live AI calls). However, actual word counts for several fields are noticeably HIGHER than the new reduced targets, and for 2 fields even higher than the OLD (pre-change) targets — see details below.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/recommendations/generate (summary field)", "issue": "Target ~22-28 words (was 35-45); observed 43-44 words in 2 separate generations — essentially no reduction achieved, output lands in the OLD range."},
+      {"endpoint": "GET /api/careers/{id} (description field)", "issue": "Target ~20-27 words (was 30-40); observed 45 words — LONGER than even the old max (40), i.e. the budget reduction had the opposite effect for this field."},
+      {"endpoint": "GET /api/careers/{id} (how_to_start items)", "issue": "Target ~10-13 words (was 15-20); observed 16-23 words — close to/above the OLD range, not the new one."},
+      {"endpoint": "GET /api/roadmap/tasks/{id}/resources (overview)", "issue": "Target ~20-27 words (was 30-40); observed 41 words — at/above the old max, no real reduction."},
+      {"endpoint": "GET /api/roadmap/tasks/{id}/resources (steps)", "issue": "Target ~10-13 words (was 15-20); observed 18-22 words — essentially unchanged from the old budget."},
+      {"endpoint": "GET /api/roadmap/tasks/{id}/resources (free_tips)", "issue": "Target ~8-11 words (was 12-16); observed 14-16 words — close to old max, not new target."},
+      {"endpoint": "POST /api/roadmap/study-plan (plan.summary, plan.tips)", "issue": "summary target ~10-13 words, observed 18; tips target ~8-11 words, observed 15-16 — roughly the old budget, not the reduced one."},
+      {"endpoint": "POST /api/roadmap/daily-plan/settings (item.description)", "issue": "Hard max stated as 12 words in prompt; one observed item hit 15 words, exceeding the explicit max (minor instruction-following miss)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter54_shorter_prompts.py", "/app/test_reports/pytest/pytest_iter54.xml"],
+  "action_items": [
+    "No regression/parsing bugs — do not need to revert anything structurally.",
+    "The 1/3 token-reduction goal is only PARTIALLY achieved: fields with a simple '1 full sentence' instruction (career summary/why ~10-16w, milestone description ~15w, task description ~11-14w, weekly week.goal ~9-13w, daily plan title/description mostly within max) DID shrink close to the new targets. But fields that are '2 sentences' or that also carry a 'be concrete, name real courses/platforms/universities' instruction (recommendations.summary, career_detail.description, task_resources.overview/steps/free_tips, study-plan.summary/tips) consistently overshoot the new word budget, landing back near (or above) the OLD budget — the concreteness/naming instruction appears to compete with and override the shorter word-count instruction.",
+    "Consider either tightening SYSTEM_PL's enforcement language further for these specific multi-constraint fields, lowering the stated max further to compensate for LLM overshoot, or accepting current output as a partial (not full 1/3) reduction — flag this calibration gap to the user if the 1/3 reduction is a hard requirement."
+  ],
+  "critical_code_review_comments": [
+    "ask_llm() retry/parse logic unchanged and still robust (3 attempts, regex JSON extraction) — no regression risk introduced by the prompt-text-only change.",
+    "career_templates caching means a user hitting an already-cached career/task will keep seeing OLD (longer) content indefinitely until cache is invalidated or TTL/refresh logic kicks in (e.g. WEEKLY_PLAN_REFRESH_EVERY for weekly plans) — worth confirming with main agent whether the cache should be proactively invalidated for this release so existing users see the shorter content, since career_templates detail/milestones have no refresh-every-N mechanism like weekly plans do."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter54_shorter_prompts.py"],
+  "success_rate": {"backend": "100% (5/5 tests passed; 0 JSON parse failures / truncations across 7 live AI calls)", "frontend": "not tested (backend-only testing requested)"},
+  "seed_data_creation": "Created fresh TEST_iter54_* user, submitted profile answers, enabled demo premium, generated recommendations, added custom career 'Koordynator ds. wdrożeń ERP', built roadmap, generated task resources, weekly study plan (8 weeks), and daily plan settings — all fresh AI-generated content (no stub/mock data).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All 6 changed ask_llm() prompt sites were exercised with fresh (non-cached) generations via a new user + new custom career title. No parsing/truncation regressions found — this confirms (a) and (c) from the review request. However (b) — 'actual generated text is noticeably shorter' — is only true for single-sentence fields; multi-sentence/example-naming fields (recommendations.summary, career_detail.description, task_resources.overview/steps/free_tips, study-plan.summary/tips) overshoot their new reduced word targets and land close to or above the OLD pre-change targets, meaning the overall token savings is less than the requested ~1/3 for those specific fields. Item/field COUNTS are unchanged as intended (8 weeks x 3-5 items, 5-6 how_to_start steps, 5-8 resources, etc.). No bugs block merging this change; it's a calibration/prompt-adherence gap worth a follow-up pass if the user insists on the full 1/3 reduction being hit consistently.",
+  "rca_of_issue": "Root cause of the partial-reduction gap: for fields where the prompt both (1) sets a reduced word-count budget AND (2) separately instructs the model to be concrete/name real entities (courses, platforms, universities, certifications), the concreteness instruction appears to take priority and the model pads toward the content it feels is necessary to be specific, overshooting the budget. Single-sentence fields without a competing 'be concrete and name things' requirement (or where that requirement is naturally satisfiable in few words, like milestone/task titles) show much better adherence to the new shorter targets. This is a prompt-engineering trade-off, not a code/parsing defect."
+}

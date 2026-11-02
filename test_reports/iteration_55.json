@@ -1,0 +1,38 @@
+{
+  "summary": "Executed the previously-prepared (but never run) pytest file test_iter55_hardcap_prompts.py against the live backend, verifying round-2 hard-cap prompt fixes (maks. N słów wording + SYSTEM_PL enforcement clause). Had to run with `-n 0` (serial) instead of the default `-n 2 --dist loadscope` because the test module shares a module-scoped fixture + class-attribute (path_id) ACROSS test classes, which breaks under xdist's multi-process workers (observed 3 false failures: 'no path_id captured', 'no careers available' — pure test-infra artifact, not a real bug). After switching to -n 0, all 5 tests PASSED end-to-end (fresh user + fresh custom career 'Specjalista ds. automatyzacji procesów RPA', ~44s runtime, 0 JSON parse failures across ~7 live AI calls). RESULT: hard caps are now RESPECTED for 3 of 7 field types (task_resources.steps, task_resources.free_tips, weekly_plan.tips — all now within their caps, a major improvement from iteration_54 where these overshot badly). However 4 field types STILL exceed their new hard caps, though by a smaller margin than iteration_54's soft-range version: recommendations.summary (32w vs cap 20), career_detail.description (24w vs cap 20), career_detail.how_to_start (4 of 6 items 13-16w vs cap 11), task_resources.overview (26w vs cap 20), weekly_plan.summary (14w vs cap 12). All overshooting fields are the same 'concreteness/2-sentence' fields flagged in iteration_54 as competing with the length constraint.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/recommendations/generate (summary field)", "issue": "Cap=20 words (2 sentences); observed 32 words. Improved from iter54's 43-44w but still 60% over the hard cap."},
+      {"endpoint": "GET /api/careers/{id} (description field)", "issue": "Cap=20 words; observed 24 words. Improved from iter54's 45w but still 20% over cap."},
+      {"endpoint": "GET /api/careers/{id} (how_to_start items)", "issue": "Cap=11 words/item; observed 10,14,13,10,16,16 — 4 of 6 items exceed cap (up to 45% over). Improved from iter54's 16-23w range."},
+      {"endpoint": "GET /api/roadmap/tasks/{id}/resources (overview)", "issue": "Cap=20 words; observed 26 words. Improved from iter54's 41w but still 30% over cap."},
+      {"endpoint": "POST /api/roadmap/study-plan (plan.summary)", "issue": "Cap=12 words; observed 14 words. Improved from iter54's 18w but still slightly over cap."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter55_hardcap_prompts.py", "/app/test_reports/pytest/pytest_iter55.xml", "/app/test_reports/pytest/iter55_run.log"],
+  "action_items": [
+    "Round-2 hard-cap fix is a genuine improvement (3 field types now fully compliant: task_resources.steps/free_tips, weekly_plan.tips) but did NOT fully solve the overshoot for the 4 'multi-constraint' fields (recommendations.summary, career_detail.description/how_to_start, task_resources.overview, weekly_plan.summary) — these still exceed their hard caps by 20-45%.",
+    "Same root cause as iteration_54: fields instructed to both (a) stay under a tight word cap AND (b) be concrete/name real courses/platforms/universities consistently overshoot, because naming concrete entities costs words the model doesn't want to cut.",
+    "Recommend either: (1) lowering the stated max further for just these 5 field instances to pre-compensate for ~20-30% typical overshoot, or (2) splitting the instruction so concreteness is satisfied by a separate short field (e.g. a dedicated 'platform' sub-field) rather than embedded in the capped prose sentence, or (3) accepting this as a 'good enough, not perfect' calibration state if exact word-count enforcement isn't a hard product requirement.",
+    "No code/parsing bugs found — all fields are complete, coherent Polish sentences with correct concrete examples (UiPath Academy, Coursera, GitHub, Microsoft Learn, Pracuj.pl, KFS, etc.); none truncated or garbled.",
+    "Test-infra note for future runs: this test file's module-scoped fixture + cross-class path_id sharing requires `-n 0` serial execution; running it under the project default `-n 2 --dist loadscope` produces false failures unrelated to app behavior."
+  ],
+  "critical_code_review_comments": [
+    "ask_llm() parsing remains robust; 0 JSON parse failures / truncations across 7 live AI calls in this run.",
+    "Structural counts unchanged as required: 8 weeks in study plan, 6 resources (within 5-8 range), 6 how_to_start items (within 5-6 range), 3 milestones each with 3 tasks — no structural regression from the wording-only change."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (5/5 tests passed after fixing xdist parallelism issue by running -n 0; 0 JSON parse failures across 7 live AI calls)", "frontend": "not tested (backend-only testing requested)"},
+  "seed_data_creation": "Created fresh TEST_iter55_* user, premium demo subscription, profile answers, recommendations, custom career 'Specjalista ds. automatyzacji procesów RPA', roadmap with 3 milestones, task resources, 8-week study plan, and daily plan settings — all fresh (non-cached) AI-generated content.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Round-2 hard-cap wording changes are a real, measurable improvement over round-1 (iteration_54) but do not fully close the gap for 5 specific prompt outputs: recommendations.summary (32w/cap20), career_detail.description (24w/cap20), career_detail.how_to_start (up to 16w/cap11 on 4/6 items), task_resources.overview (26w/cap20), weekly_plan.summary (14w/cap12). 3 other previously-overshooting fields (task_resources.steps, task_resources.free_tips, weekly_plan.tips) are now fully within cap — good evidence the hard-cap wording approach works when there isn't a competing 'name concrete things' instruction in the same sentence. If the product requirement is an exact/hard word-count ceiling (not just directional reduction), a 3rd round focusing specifically on these 5 fields (likely restructuring so concreteness and length don't compete in the same sentence) would be needed. If 'close to, directionally much better' is acceptable, this can be considered resolved.",
+  "rca_of_issue": "Same RCA as iteration_54, now with harder evidence: for prompt fields where the model must BOTH respect a tight word cap AND name a concrete real-world entity (course, platform, university, certification) within that same short sentence, the model prioritizes including the concrete reference over strictly respecting the cap, overshooting by 20-45%. Fields with no competing concreteness requirement (steps that are simple action instructions, free_tips, weekly tips) now fully comply with the new hard caps. This confirms the overshoot is driven by instruction competition, not insufficient 'hardness' of the cap wording alone — SYSTEM_PL's hard-cap enforcement clause did help (all overshoot margins shrank substantially vs iteration_54) but didn't eliminate the competing-instruction effect entirely."
+}
