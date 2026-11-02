@@ -258,14 +258,15 @@ async def public_user(u: UserDoc) -> dict:
 
 
 # ---------------------------------------------------------------- LLM helpers
-async def ask_llm(model: tuple, system: str, prompt: str) -> dict:
+async def ask_llm(model: tuple, system: str, prompt: str, max_tokens: int = 4096) -> dict:
     # claude-haiku-5-5 (and other "extended thinking" capable Anthropic models) generate internal
     # reasoning tokens by default that are billed as output but never surfaced via TextDelta — this
     # was silently inflating output tokens ~5x (confirmed: 10 472 -> 2 049 output tokens for an
     # identical recommendations call once thinking is disabled). We only ever need the final JSON,
     # never the reasoning trace, so disable it outright for Anthropic and cap max_tokens sanely
-    # (real payloads measure well under 2k tokens; 4k leaves headroom without paying for runaway output).
-    params = {"max_tokens": 4096}
+    # (real payloads measure well under 2k tokens; 4k leaves headroom without paying for runaway output —
+    # callers with bigger payloads, e.g. the 8-week study plan, pass a higher max_tokens explicitly).
+    params = {"max_tokens": max_tokens}
     messages = None
     if model[0] == "anthropic":
         params["thinking"] = {"type": "disabled"}
@@ -273,17 +274,28 @@ async def ask_llm(model: tuple, system: str, prompt: str) -> dict:
         # Anthropic prompt-cache breakpoint so repeated calls within the cache window are billed at
         # ~10% of the normal input-token price instead of full price every time.
         messages = [{"role": "system", "content": system, "cache_control": {"type": "ephemeral"}}]
-    chat = LlmChat(api_key=LLM_KEY, session_id=str(uuid.uuid4()), system_message=system, initial_messages=messages).with_model(*model).with_params(**params)
-    text = ""
-    async for ev in chat.stream_message(UserMessage(text=prompt)):
-        if isinstance(ev, TextDelta):
-            text += ev.content
-        elif isinstance(ev, StreamDone):
-            break
-    m = re.search(r"\{.*\}", text, re.S)
-    if not m:
-        raise ValueError("No JSON in LLM response")
-    return json.loads(m.group(0))
+    last_err: Optional[Exception] = None
+    # Occasionally the model emits near-valid JSON that fails to parse (a stray quote inside a
+    # sentence, or — for long payloads — the response gets cut off at max_tokens). Both are
+    # transient: retrying the same call usually succeeds, so we retry a couple of times before
+    # giving up and surfacing the error to the caller (who marks the generation as failed).
+    for attempt in range(3):
+        chat = LlmChat(api_key=LLM_KEY, session_id=str(uuid.uuid4()), system_message=system, initial_messages=messages).with_model(*model).with_params(**params)
+        text = ""
+        try:
+            async for ev in chat.stream_message(UserMessage(text=prompt)):
+                if isinstance(ev, TextDelta):
+                    text += ev.content
+                elif isinstance(ev, StreamDone):
+                    break
+            m = re.search(r"\{.*\}", text, re.S)
+            if not m:
+                raise ValueError("No JSON in LLM response")
+            return json.loads(m.group(0))
+        except (json.JSONDecodeError, ValueError) as e:
+            last_err = e
+            logger.warning(f"ask_llm attempt {attempt + 1}/3 failed to parse JSON ({e}); retrying" if attempt < 2 else f"ask_llm failed after 3 attempts ({e})")
+    raise last_err
 
 
 SYSTEM_PL = (
@@ -1412,7 +1424,9 @@ Zwróć JSON:
  "weeks": [{{"week": 1, "focus": "temat tygodnia", "goal": "1 pełne zdanie (ok. 15-20 słów) — co umiesz po tygodniu",
             "items": [{{"title": "zadanie", "description": "1 pełne zdanie (ok. 15-20 słów) — jak dokładnie to zrobić, z konkretami", "hours": liczba}}]}}],
  "tips": ["3 rady motywacyjne/organizacyjne, pełne zdania (ok. 12-16 słów)"]}}"""
-    plan = await ask_llm(ANALYSIS_MODEL, system_message(country, language), prompt)
+    # 8 weeks x up to 5 items, each with full-sentence descriptions, routinely runs past the
+    # default 4096-token cap and gets cut off mid-JSON — give this call explicit headroom.
+    plan = await ask_llm(ANALYSIS_MODEL, system_message(country, language), prompt, max_tokens=8192)
     for w in plan.get("weeks", []):
         for it in w.get("items", []):
             it["id"] = uuid.uuid4().hex[:10]
@@ -1464,7 +1478,10 @@ async def create_study_plan(path_id: Optional[str] = None, user: UserDoc = Depen
     doc = await get_path(user.id, path_id, {"_id": 0, "path_id": 1, "status": 1, "career": 1, "milestones": 1, "study_plan": 1, "country": 1})
     if not doc or doc["status"] != "ready":
         raise HTTPException(400, "Najpierw wybierz ścieżkę i poczekaj, aż droga będzie gotowa.")
-    if (doc.get("study_plan") or {}).get("blocks"):
+    existing_blocks = (doc.get("study_plan") or {}).get("blocks") or []
+    # A single failed first attempt (e.g. a transient AI/JSON hiccup) must stay retryable —
+    # only refuse when a plan actually exists (pending or successfully built).
+    if existing_blocks and existing_blocks[-1].get("status") != "error":
         raise HTTPException(400, "Plan tygodniowy już istnieje.")
     job_id = uuid.uuid4().hex
     sig, pending = pending_signature(doc.get("milestones", []))

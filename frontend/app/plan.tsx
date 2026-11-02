@@ -417,7 +417,7 @@ function WeeklyPlanTab() {
 
   const create = async () => {
     setError("");
-    if (!(await watchAd(t.ads.reasonWeeklyPlan))) return;
+    if (!(await watchAd(t.ads.reasonWeeklyPlan, 2))) return;
     setStarting(true);
     try {
       await api("/roadmap/study-plan", { method: "POST" });

@@ -26,6 +26,7 @@ type AuthCtx = {
   user: User | null;
   loading: boolean;
   lang: Lang;
+  localCountry: string | null;
   t: Strings;
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string, country?: string, ui_language?: string) => Promise<void>;
@@ -101,7 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <Ctx.Provider value={{ user, loading, lang, t, login, register, logout, refresh, completeAuth: handleAuth, setLocalCountry, setLocalLanguage }}>{children}</Ctx.Provider>
+    <Ctx.Provider value={{ user, loading, lang, localCountry, t, login, register, logout, refresh, completeAuth: handleAuth, setLocalCountry, setLocalLanguage }}>{children}</Ctx.Provider>
   );
 }
 

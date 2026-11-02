@@ -1,13 +1,14 @@
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { ActivityIndicator, ScrollView, Text, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
 import { useAds } from "@/src/ads/AdsProvider";
 import { useAuth } from "@/src/auth";
 import { Button, Ionicons, IconName, PressableScale, Txt } from "@/src/components/ui";
+import { SelectField } from "@/src/components/Select";
 import { COUNTRIES } from "@/src/countries";
 import { UI_LANGUAGES } from "@/src/languages";
 import { StreakCard } from "@/src/components/Streak";
@@ -111,60 +112,32 @@ export default function Profile() {
         <View style={{ gap: spacing.md }}>
           <Txt variant="heading">{t.profile.countryHeading}</Txt>
           <Txt variant="caption">{t.profile.countrySub}</Txt>
-          {COUNTRIES.map((c) => {
-            const active = (user?.country || "PL") === c.code;
-            const saving = savingCountry === c.code;
-            return (
-              <PressableScale
-                key={c.code}
-                testID={`country-option-${c.code}`}
-                onPress={() => selectCountry(c.code)}
-                disabled={!!savingCountry}
-                style={[styles.themeCard, { borderColor: active ? colors.brandPrimary : colors.border }]}
-              >
-                <Text style={styles.flag}>{c.flag}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.themeTitle}>{c.names[lang]}</Text>
-                  <Txt variant="caption">
-                    {t.profile.langSuffix} {c.langNames[lang]}
-                  </Txt>
-                </View>
-                {saving ? (
-                  <ActivityIndicator color={colors.brandPrimary} size="small" />
-                ) : (
-                  <Ionicons name={active ? "radio-button-on" : "radio-button-off"} size={22} color={active ? colors.brandPrimary : colors.borderStrong} />
-                )}
-              </PressableScale>
-            );
-          })}
+          <SelectField
+            testID="country-select"
+            label={t.profile.countryHeading}
+            options={COUNTRIES.map((c) => ({
+              code: c.code,
+              flag: c.flag,
+              label: c.names[lang],
+              subtitle: `${t.profile.langSuffix} ${c.langNames[lang]}`,
+            }))}
+            selectedCode={user?.country || "PL"}
+            onSelect={selectCountry}
+            loading={!!savingCountry}
+          />
         </View>
 
         <View style={{ gap: spacing.md }}>
           <Txt variant="heading">{t.profile.languageHeading}</Txt>
           <Txt variant="caption">{t.profile.languageSub}</Txt>
-          {UI_LANGUAGES.map((l) => {
-            const active = lang === l.code;
-            const saving = savingLanguage === l.code;
-            return (
-              <PressableScale
-                key={l.code}
-                testID={`language-option-${l.code}`}
-                onPress={() => selectLanguage(l.code)}
-                disabled={!!savingLanguage}
-                style={[styles.themeCard, { borderColor: active ? colors.brandPrimary : colors.border }]}
-              >
-                <Text style={styles.flag}>{l.flag}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.themeTitle}>{l.nativeName}</Text>
-                </View>
-                {saving ? (
-                  <ActivityIndicator color={colors.brandPrimary} size="small" />
-                ) : (
-                  <Ionicons name={active ? "radio-button-on" : "radio-button-off"} size={22} color={active ? colors.brandPrimary : colors.borderStrong} />
-                )}
-              </PressableScale>
-            );
-          })}
+          <SelectField
+            testID="language-select"
+            label={t.profile.languageHeading}
+            options={UI_LANGUAGES.map((l) => ({ code: l.code, flag: l.flag, label: l.nativeName }))}
+            selectedCode={lang}
+            onSelect={selectLanguage}
+            loading={!!savingLanguage}
+          />
         </View>
 
         <View style={{ gap: spacing.md }}>

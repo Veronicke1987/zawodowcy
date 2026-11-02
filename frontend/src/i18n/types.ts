@@ -56,6 +56,7 @@ export type Strings = {
     subtitle: string;
     languageLabel: string; // header above the independent interface-language picker
     marketCaption: string; // generic caption shown under every country card
+    continueButton: string; // confirms the picked country/market and moves to login/register
   };
   auth: {
     loginTab: string;
