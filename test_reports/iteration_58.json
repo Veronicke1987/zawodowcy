@@ -1,0 +1,25 @@
+{
+  "summary": "Tested the country-market-localization fix (GB-market-but-Polish-interface bug reported by user). Created /app/backend/tests/test_iter_country_market_localization.py covering the exact reported scenario (country=GB + ui_language=pl) plus spot-checks for US and NL, and a PL regression check. All 11 tests PASSED.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter_country_market_localization.py", "/app/test_reports/pytest/pytest_results_country_market.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "COUNTRY_CONFIG, system_message(), job_links(), resource_url()/_agency_short_name() and every AI-generation prompt (recommendations, career_detail, roadmap, task_resources etc.) now correctly thread `country` through to avoid Poland-specific defaults — verified via actual AI calls, not just static code review.",
+    "No duplicate/dead code found in the reviewed sections; prompts are long but within model limits (no JSON parse errors observed in backend logs during testing)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter_country_market_localization.py"],
+  "success_rate": {"backend": "100% (11/11 tests passed)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "Created throwaway TEST_ctrymkt_* users for GB/US/NL/PL country-switching tests; no permanent seed data added. Did not modify admin account.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Verified end-to-end with REAL AI calls (not mocked): (1) EXACT reported bug scenario country=GB + ui_language=pl -> recommendations/career-detail/roadmap text has NO Comarch/Symfonia/Krakow/Warszawa/urzad pracy/KFS/zl leakage, salary shown in £, job_links return Reed/TotalJobs/uk.indeed.com (no pracuj.pl/olx.pl/pl.indeed.com). (2) US: $ currency + ZipRecruiter/Glassdoor + www.indeed.com (not pl.indeed.com). (3) NL: € currency + Nationale Vacaturebank in job_links. (4) PL regression: still correctly returns Pracuj.pl/OLX Praca links and zl currency, confirming the fix didn't break Poland's own behavior. (5) Checked backend logs post-run: no new JSON parse/truncation errors from the longer country-aware prompts, only pre-existing benign 'Unclosed client session' asyncio warnings unrelated to this change. One test-script false positive was found and fixed during testing: an initial naive substring check for ' zl' falsely flagged the Polish word 'przyszlosci' (contains letters z+l) as a leakage match — fixed by using a space-padded exact-token match instead of a stripped substring match; this was a test-script bug, not an app bug. No further issues found; this fix appears solid across all tested countries."
+}

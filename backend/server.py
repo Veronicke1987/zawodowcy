@@ -299,9 +299,11 @@ async def ask_llm(model: tuple, system: str, prompt: str, max_tokens: int = 4096
 
 
 SYSTEM_PL = (
-    "Jesteś doświadczonym polskim doradcą zawodowym i analitykiem rynku pracy. "
-    "Znasz aktualne oferty pracy publikowane w Polsce na Pracuj.pl, OLX Praca, LinkedIn, Indeed i w urzędach pracy, "
-    "w tym typowe wymagania pracodawców. Odpowiadasz WYŁĄCZNIE poprawnym JSON-em, bez komentarzy i bez markdown. "
+    "Jesteś doświadczonym doradcą zawodowym i analitykiem rynku pracy, biegłym w realiach wielu krajów — Polski, USA, Wielkiej "
+    "Brytanii, Australii, Niemiec i Holandii. Zawsze dostosowujesz WSZYSTKIE realia (nazwy stanowisk z lokalnych ogłoszeń, portale "
+    "pracy, urzędy/agencje zatrudnienia, uczelnie, oprogramowanie i narzędzia branżowe, waluta) do KONKRETNEGO kraju wskazanego w "
+    "zapytaniu — NIGDY nie zakładasz domyślnie Polski, jeśli zapytanie dotyczy innego kraju; każdy kraj ma swoje własne, realne "
+    "instytucje i nigdy nie mieszasz ich między krajami. Odpowiadasz WYŁĄCZNIE poprawnym JSON-em, bez komentarzy i bez markdown. "
     "Wszystkie teksty po polsku, zawsze PEŁNYMI, płynnymi zdaniami — jak doświadczony doradca piszący zwięzłą, ale konkretną i pomocną "
     "poradę, NIGDY jako urwane frazy czy pojedyncze słowa po myślnikach/przecinkach. "
     "Limit słów podany przy każdym polu (np. \"maks. 12 słów\") to NIEPRZEKRACZALNY SUFIT, nie szacunek ani cel do dobicia — policz słowa "
@@ -479,17 +481,18 @@ async def apply_cached_roadmap(user_id: str, job_id: str, milestones: list, qual
                                      {"$set": {"status": "error", "error": str(e)[:200]}})
 
 
-async def validate_profession(title: str, language: str = "pl") -> tuple[bool, str]:
+async def validate_profession(title: str, language: str = "pl", country: str = "PL") -> tuple[bool, str]:
     """Blocks custom-path titles that are illegal/criminal activities, or that simply
     aren't a real job/profession at all (so the roadmap generator never has to hallucinate
     a path for nonsense input). Fails OPEN (allows) if the classifier call itself errors,
     so a transient API hiccup never blocks a legitimate user."""
     lang_name = LANGUAGE_NAMES.get(language, "polskim")
+    cfg = COUNTRY_CONFIG.get((country or "PL").upper()) or COUNTRY_CONFIG["PL"]
     prompt = f"""Oceń wpisany przez użytkownika tekst: "{title}"
-Czy to prawdziwy, legalny zawód lub stanowisko pracy, które realnie istnieje na rynku pracy w Polsce?
+Czy to prawdziwy, legalny zawód lub stanowisko pracy, które realnie istnieje na rynku pracy w kraju: {cfg['name']}?
 Odpowiedz "nie" (valid=false), jeśli to:
-- czynność przestępcza lub nielegalna w Polsce (np. złodziej, zabójca/płatny zabójca, gwałciciel, handlarz narkotykami,
-  "pirat drogowy"/nielegalny przewoźnik, oszust, haker przestępczy, stręczyciel, prostytutka/prostytucja, przemytnik),
+- czynność przestępcza lub nielegalna w kraju {cfg['name']} (np. złodziej, zabójca/płatny zabójca, gwałciciel, handlarz narkotykami,
+  "pirat drogowy"/nielegalny przewoźnik, oszust, haker przestępczy, stręczyciel, przemytnik),
 - cokolwiek, co NIE jest zawodem/stanowiskiem pracy (np. przedmiot, zwierzę, jedzenie, miejsce, uczucie, czynność
   abstrakcyjna typu "być", zaimek typu "ja", losowy tekst, wulgaryzm, puste/bez sensu).
 W razie wątpliwości, czy to realny i legalny zawód, odpowiedz "tak" (valid=true) — blokuj tylko oczywiste przypadki.
@@ -502,15 +505,45 @@ Zwróć TYLKO JSON: {{"valid": true/false, "reason": "krótkie uzasadnienie W J�
         return True, ""
 
 
-def job_links(title: str) -> list:
+def _agency_short_name(cfg: dict) -> str:
+    """Short, searchable name for the country's employment-agency scheme (drops the parenthetical
+    funding-scheme detail and any trailing "and ..."/"e.g. ..." qualifiers) — used to build a
+    real local search query instead of a hardcoded Polish "urząd pracy"."""
+    name = cfg["employment_agency"].split(", e.g.")[0].split(" (")[0].split(" and ")[0].split(" / ")[0]
+    return name.strip()
+
+
+def job_links(title: str, country: str = "PL") -> list:
+    """Real, country-specific job-board search links — one per portal actually listed in that
+    country's COUNTRY_CONFIG['job_portals'], instead of always linking to Polish sites."""
+    country = (country or "PL").upper()
     q = quote_plus(title)
     slug = quote(title.lower().replace(" ", "-"))
-    return [
-        {"label": "Pracuj.pl", "url": f"https://www.pracuj.pl/praca/{quote(title)};kw"},
-        {"label": "OLX Praca", "url": f"https://www.olx.pl/praca/q-{slug}/"},
-        {"label": "LinkedIn", "url": f"https://www.linkedin.com/jobs/search/?keywords={q}&location=Polska"},
-        {"label": "Indeed", "url": f"https://pl.indeed.com/jobs?q={q}"},
-    ]
+    boards = {
+        "PL": [("Pracuj.pl", f"https://www.pracuj.pl/praca/{quote(title)};kw"),
+               ("OLX Praca", f"https://www.olx.pl/praca/q-{slug}/"),
+               ("LinkedIn", f"https://www.linkedin.com/jobs/search/?keywords={q}&location=Polska"),
+               ("Indeed", f"https://pl.indeed.com/jobs?q={q}")],
+        "US": [("LinkedIn", f"https://www.linkedin.com/jobs/search/?keywords={q}&location=United%20States"),
+               ("Indeed", f"https://www.indeed.com/jobs?q={q}"),
+               ("ZipRecruiter", f"https://www.ziprecruiter.com/candidate/search?search={q}"),
+               ("Glassdoor", f"https://www.glassdoor.com/Job/jobs.htm?sc.keyword={q}")],
+        "GB": [("LinkedIn", f"https://www.linkedin.com/jobs/search/?keywords={q}&location=United%20Kingdom"),
+               ("Indeed", f"https://uk.indeed.com/jobs?q={q}"),
+               ("Reed", f"https://www.reed.co.uk/jobs/{slug}-jobs"),
+               ("TotalJobs", f"https://www.totaljobs.com/jobs/{slug}")],
+        "AU": [("SEEK", f"https://www.seek.com.au/{slug}-jobs"),
+               ("LinkedIn", f"https://www.linkedin.com/jobs/search/?keywords={q}&location=Australia"),
+               ("Indeed", f"https://au.indeed.com/jobs?q={q}")],
+        "DE": [("LinkedIn", f"https://www.linkedin.com/jobs/search/?keywords={q}&location=Deutschland"),
+               ("Indeed", f"https://de.indeed.com/jobs?q={q}"),
+               ("StepStone", f"https://www.stepstone.de/5/ergebnisliste.html?ke={q}"),
+               ("Xing", f"https://www.xing.com/jobs/search?keywords={q}")],
+        "NL": [("LinkedIn", f"https://www.linkedin.com/jobs/search/?keywords={q}&location=Nederland"),
+               ("Indeed", f"https://nl.indeed.com/jobs?q={q}"),
+               ("Nationale Vacaturebank", f"https://www.nationalevacaturebank.nl/vacatures?s={q}")],
+    }
+    return [{"label": label, "url": url} for label, url in boards.get(country, boards["PL"])]
 
 
 PLATFORM_SEARCH = {
@@ -523,16 +556,17 @@ PLATFORM_SEARCH = {
 }
 
 
-def resource_url(r: dict, city: str) -> str:
+def resource_url(r: dict, city: str, country: str = "PL") -> str:
     rtype = (r.get("type") or "").lower()
     platform = (r.get("platform") or "").lower()
     q = r.get("query") or r.get("title") or ""
     if rtype == "youtube":
         return PLATFORM_SEARCH["youtube"].format(q=quote_plus(q))
     if rtype == "urzad_pracy":
-        return PLATFORM_SEARCH["google"].format(q=quote_plus(f"{q} urząd pracy {city}".strip()))
+        cfg = COUNTRY_CONFIG.get((country or "PL").upper()) or COUNTRY_CONFIG["PL"]
+        return PLATFORM_SEARCH["google"].format(q=quote_plus(f"{q} {_agency_short_name(cfg)} {city}".strip()))
     if rtype == "studies":
-        return PLATFORM_SEARCH["google"].format(q=quote_plus(f"rekrutacja {q} {city}".strip()))
+        return PLATFORM_SEARCH["google"].format(q=quote_plus(f"{q} {city}".strip()))
     for key, tpl in PLATFORM_SEARCH.items():
         if key in platform:
             return tpl.format(q=quote_plus(q))
@@ -920,13 +954,15 @@ async def run_recommendations(user_id: str, answers: dict, job_id: str, country:
     # repeats the same 9 fields across 10 career objects, so every character saved on field NAMES
     # (not content) is pure waste avoided x10. Mapped back to the real field names the app/DB use
     # right after parsing — no frontend or schema change needed.
+    cfg = COUNTRY_CONFIG.get((country or "PL").upper()) or COUNTRY_CONFIG["PL"]
     prompt = f"""Profil użytkownika (odpowiedzi z ankiety):
 {profile_text(answers)}
+Rynek pracy/kraj: {cfg['name']} (portale: {cfg['job_portals']}).
 
-Zaproponuj zawody dopasowane do tej osoby, w dwóch kategoriach:
+Zaproponuj zawody dopasowane do tej osoby, REALNE dla rynku pracy w {cfg['name']} (nie dla innego kraju), w dwóch kategoriach:
 - "now": 5 zawodów, które może wykonywać JUŻ TERAZ z obecnymi umiejętnościami (wymagania typowych ofert spełnia lub prawie spełnia),
 - "future": 5 zawodów, które do niej pasują, ale wymagają zdobycia nowych umiejętności.
-Nie ograniczaj się do oczywistych zawodów — uwzględnij też mniej znane stanowiska realnie występujące w polskich ogłoszeniach
+Nie ograniczaj się do oczywistych zawodów — uwzględnij też mniej znane stanowiska realnie występujące w ogłoszeniach w {cfg['name']}
 (np. wdrożeniowiec systemów ERP, specjalista ds. wdrożeń, koordynator logistyki, analityk danych, specjalista ds. obsługi klienta B2B itp.).
 Weź pod uwagę to, czego użytkownik nie lubi, jego charakter i odporność zawodu na automatyzację przez AI.
 
@@ -934,9 +970,9 @@ Weź pod uwagę to, czego użytkownik nie lubi, jego charakter i odporność zaw
 
 Aby oszczędzić tokeny, użyj KRÓTKICH kluczy JSON dokładnie jak w przykładzie (bez pełnych nazw pól). Zwróć JSON:
 {{"summary": "1 zwięzłe zdanie, maks. 15 słów — opis profilu użytkownika: mocne strony i kierunek, w jakim warto szukać pracy",
- "now": [{{"t": "nazwa stanowiska jak w ogłoszeniach", "i": "branża", "s": "1 zdanie, maks. 12 słów — czym dokładnie zajmuje się osoba na tym stanowisku na co dzień",
+ "now": [{{"t": "nazwa stanowiska jak w ogłoszeniach w {cfg['name']}", "i": "branża", "s": "1 zdanie, maks. 12 słów — czym dokładnie zajmuje się osoba na tym stanowisku na co dzień",
           "w": "1 zdanie, maks. 12 słów — dlaczego akurat ten zawód realnie pasuje do TEJ osoby",
-          "m": 0-100, "sa": "np. 6 000 – 8 500 zł brutto", "d": "high|medium|low", "r": "low|medium|high",
+          "m": 0-100, "sa": "widełki wynagrodzenia w walucie kraju {cfg['name']}, format: {cfg['currency_fmt']}", "d": "high|medium|low", "r": "low|medium|high",
           "g": ["czego jeszcze brakuje, max 2 krótkie frazy"]}}],
  "future": [ ...ten sam format... ]}}
 UWAGA: pola "d" i "r" MUSZĄ być dokładnie jednym z angielskich słów: high, medium albo low (nigdy po polsku/innym języku) — to wewnętrzny kod, tłumaczony na język interfejsu osobno przez aplikację."""
@@ -1017,25 +1053,27 @@ async def find_career(user_id: str, career_id: str) -> tuple[dict, str]:
 async def career_detail(career_id: str, user: UserDoc = Depends(current_user)):
     career, country = await find_career(user.id, career_id)
     language = effective_language(user, country)
+    cfg = COUNTRY_CONFIG.get((country or "PL").upper()) or COUNTRY_CONFIG["PL"]
     cache_key = career_cache_key(career["title"], country, language)
     tmpl = await db.career_templates.find_one({"_id": cache_key}, {"_id": 0, "detail": 1})
     if tmpl and tmpl.get("detail"):
-        return {"career": career, "detail": tmpl["detail"], "job_links": job_links(career["title"])}
+        return {"career": career, "detail": tmpl["detail"], "job_links": job_links(career["title"], country)}
     prompt = f"""To jest odrębne, samodzielne zapytanie — dotyczy WYŁĄCZNIE poniższego jednego zawodu, nie odwołuj się do innych zawodów ani wcześniejszych rozmów.
-Zawód: {career['title']} (branża: {career.get('industry', '')}).
+Zawód: {career['title']} (branża: {career.get('industry', '')}). Rynek pracy/kraj: {cfg['name']}.
 
-Opisz ten zawód szczegółowo, na podstawie typowych ofert pracy w Polsce (Pracuj.pl, OLX, LinkedIn). W polu "how_to_start" bądź KONKRETNY —
-nazwij z imienia realne kursy/szkolenia/platformy i wskaż gdzie ich szukać (np. "kurs »Kadry i płace od podstaw« na Platformie Vademecum
-Kadrowego", "szkolenie finansowane z KFS w urzędzie pracy"), a nie ogólniki typu "zrób kurs" czy "znajdź szkolenie". JEŚLI wymaga to studiów —
-podaj nazwę kierunku (ew. 1-2 pokrewne kierunki) i wymień 2-3 PRZYKŁADOWE, różne uczelnie w Polsce, które go oferują, jako opcje do wyboru
-(np. "kierunek Logistyka — dostępny m.in. na Uniwersytecie Ekonomicznym w Krakowie, Politechnice Warszawskiej lub w WSB") — NIGDY nie wskazuj
-jednej konkretnej uczelni jako jedynej słusznej drogi. Zwróć JSON:
+Opisz ten zawód szczegółowo, na podstawie typowych ofert pracy w kraju: {cfg['name']} (portale: {cfg['job_portals']}). W polu "how_to_start"
+bądź KONKRETNY i LOKALNY dla tego kraju — nazwij z imienia realne kursy/szkolenia/platformy faktycznie dostępne w {cfg['name']} i wskaż gdzie
+ich szukać, a dla wsparcia instytucjonalnego użyj lokalnego odpowiednika: {cfg['employment_agency']} — NIGDY polskich instytucji/programów
+(urząd pracy, KFS, bon szkoleniowy), jeśli kraj to nie Polska. Nie ogólnikuj — unikaj fraz typu "zrób kurs" czy "znajdź szkolenie". JEŚLI
+wymaga to studiów — podaj nazwę kierunku (ew. 1-2 pokrewne kierunki) i wymień 2-3 PRZYKŁADOWE, różne, realne uczelnie w {cfg['name']}, które
+go oferują, jako opcje do wyboru — NIGDY nie wskazuj jednej konkretnej uczelni jako jedynej słusznej drogi, i NIGDY nie podawaj uczelni spoza
+kraju {cfg['name']}. Zwróć JSON:
 {{"description": "1 zwięzłe zdanie, maks. 15 słów — opis zawodu: czym się zajmuje i jak wygląda typowy dzień pracy",
  "daily_tasks": ["5-6 typowych codziennych zadań, pełne zdania, maks. 8 słów każde, nie pojedyncze słowa"],
  "pros": ["4-5 plusów, pełne zdania, maks. 8 słów każdy, z krótkim wyjaśnieniem dlaczego to plus"], "cons": ["3-4 minusy, pełne zdania, maks. 8 słów każdy, z krótkim wyjaśnieniem dlaczego to minus"],
- "requirements": ["6-9 typowych wymagań z ogłoszeń, krótkie frazy, np. wykształcenie, znajomość programów, prawo jazdy kat. B, języki"],
- "how_to_start": ["5-6 konkretnych, nazwanych z imienia kroków, każdy pełnym zdaniem, maks. 9 słów — jeśli nazwa kursu/uczelni grozi przekroczeniem limitu, pomiń resztę kontekstu, ale zmieść się w limicie"],
- "career_levels": ["4-5 kolejnych, REALNYCH, oficjalnie istniejących w Polsce stanowisk/stopni awansu w TYM KONKRETNYM zawodzie, od wejściowego do najwyższego — np. dla nauczyciela: nauczyciel stażysta, kontraktowy, mianowany, dyplomowany, wicedyrektor, dyrektor szkoły; dla programisty: junior, mid, senior, lead, CTO. NIE wymyślaj nazw stanowisk, których nie ma w tym zawodzie — jeśli nie masz pewności, użyj najbardziej powszechnie znanej, rzeczywistej struktury awansu."]}}"""
+ "requirements": ["6-9 typowych wymagań z ogłoszeń w {cfg['name']}, krótkie frazy, np. wykształcenie, znajomość KONKRETNEGO oprogramowania/narzędzi realnie używanych w tym zawodzie w {cfg['name']} (nazwij je z imienia, nie ogólnikowo), uprawnienia, języki"],
+ "how_to_start": ["5-6 konkretnych, nazwanych z imienia kroków realnych dla rynku {cfg['name']}, każdy pełnym zdaniem, maks. 9 słów — jeśli nazwa kursu/uczelni grozi przekroczeniem limitu, pomiń resztę kontekstu, ale zmieść się w limicie"],
+ "career_levels": ["4-5 kolejnych, REALNYCH, oficjalnie istniejących w {cfg['name']} stanowisk/stopni awansu w TYM KONKRETNYM zawodzie, od wejściowego do najwyższego — np. dla nauczyciela: nauczyciel stażysta, kontraktowy, mianowany, dyplomowany, wicedyrektor, dyrektor szkoły; dla programisty: junior, mid, senior, lead, CTO. NIE wymyślaj nazw stanowisk, których nie ma w tym zawodzie — jeśli nie masz pewności, użyj najbardziej powszechnie znanej, rzeczywistej struktury awansu w {cfg['name']}."]}}"""
     try:
         detail = await ask_llm(FAST_MODEL, system_message(country, language), prompt)
     except Exception:
@@ -1047,7 +1085,7 @@ jednej konkretnej uczelni jako jedynej słusznej drogi. Zwróć JSON:
          "$setOnInsert": {"created_at": now_iso()}},
         upsert=True,
     )
-    return {"career": career, "detail": detail, "job_links": job_links(career["title"])}
+    return {"career": career, "detail": detail, "job_links": job_links(career["title"], country)}
 
 
 # ---------------------------------------------------------------- premium (demo mode, no real payments yet)
@@ -1146,21 +1184,25 @@ async def get_path(user_id: str, path_id: Optional[str] = None, projection: Opti
 
 
 async def run_roadmap(user_id: str, career: dict, answers: dict, job_id: str, country: str = "PL", cache_key: Optional[str] = None, language: str = "pl"):
-    prompt = f"""Użytkownik wybrał ścieżkę kariery: {career['title']} (branża: {career.get('industry', '')}).
+    cfg = COUNTRY_CONFIG.get((country or "PL").upper()) or COUNTRY_CONFIG["PL"]
+    prompt = f"""Użytkownik wybrał ścieżkę kariery: {career['title']} (branża: {career.get('industry', '')}). Rynek pracy/kraj: {cfg['name']}.
 Profil użytkownika: {profile_text(answers)}
 
 Zbuduj ścieżkę kariery w formie drogi: 4-5 DUŻYCH punktów (stanowisk) od wejściowego do najwyższego, UŻYWAJĄC REALNYCH, oficjalnie
-istniejących w Polsce nazw stanowisk/stopni awansu zawodowego DLA TEGO KONKRETNEGO zawodu — nie każdy zawód ma strukturę
+istniejących w {cfg['name']} nazw stanowisk/stopni awansu zawodowego DLA TEGO KONKRETNEGO zawodu — nie każdy zawód ma strukturę
 korporacyjną (junior/specjalista/senior/kierownik/dyrektor)! Np. dla nauczyciela realna ścieżka to: nauczyciel stażysta →
 kontraktowy → mianowany → dyplomowany → wicedyrektor → dyrektor szkoły; dla programisty: junior → mid → senior → lead → CTO;
-dla lekarza: lekarz stażysta → rezydent → specjalista → ordynator. NIE wymyślaj stanowisk, których nie ma w tym zawodzie —
-jeśli nie masz pewności, użyj najbardziej powszechnie znanej, rzeczywistej struktury awansu w tym konkretnym zawodzie w Polsce.
+dla lekarza: lekarz stażysta → rezydent → specjalista → ordynator (DOSTOSUJ te przykładowe nazwy do realiów kraju {cfg['name']},
+nie kopiuj ich dosłownie jeśli kraj to nie Polska). NIE wymyślaj stanowisk, których nie ma w tym zawodzie — jeśli nie masz pewności,
+użyj najbardziej powszechnie znanej, rzeczywistej struktury awansu w tym konkretnym zawodzie w {cfg['name']}.
 Do każdego stanowiska podaj 3-5 MAŁYCH punktów (zadań), które użytkownik musi zdobyć/wykonać, aby dostać to stanowisko —
-opartych na wymaganiach z prawdziwych ofert pracy (np. studia z danej dziedziny, kurs Excela, znajomość programu Symfonia/SAP/Comarch,
-prawo jazdy kat. B, certyfikat, język angielski B2, 2 lata doświadczenia). Uwzględnij to, co użytkownik już ma — takie zadania oznacz "already_has": true.
+opartych na wymaganiach z prawdziwych ofert pracy w {cfg['name']} (np. studia z danej dziedziny, kurs Excela, znajomość KONKRETNEGO
+oprogramowania/narzędzia realnie używanego w tym zawodzie na rynku {cfg['name']} — nazwij je z imienia, a nie ogólnikowo, i nigdy nie
+zakładaj polskiego oprogramowania/instytucji, jeśli kraj to nie Polska, prawo jazdy odpowiedniej kategorii, certyfikat, znajomość języka
+na odpowiednim poziomie, lata doświadczenia). Uwzględnij to, co użytkownik już ma — takie zadania oznacz "already_has": true.
 Zwróć JSON:
-{{"milestones": [{{"title": "stanowisko", "description": "1 zdanie, maks. 16 słów — czym się zajmuje na tym stanowisku", "salary": "widełki brutto", "years": "np. 0-2 lata",
-   "requirements": ["wymagania z ofert, pełne frazy, nie pojedyncze słowa"],
+{{"milestones": [{{"title": "stanowisko", "description": "1 zdanie, maks. 16 słów — czym się zajmuje na tym stanowisku", "salary": "widełki wynagrodzenia w walucie kraju {cfg['name']}", "years": "np. 0-2 lata",
+   "requirements": ["wymagania z ofert w {cfg['name']}, pełne frazy, nie pojedyncze słowa"],
    "tasks": [{{"title": "krótka nazwa zadania", "description": "1 zdanie, maks. 12 słów — co dokładnie trzeba zrobić i jak to zdobyć",
               "type": "studies|course|skill|certificate|language|license|experience|other", "already_has": false}}]}}]}}"""
     try:
@@ -1236,7 +1278,7 @@ async def propose_custom_career(data: CustomPathIn, user: UserDoc = Depends(curr
     if not title:
         raise HTTPException(400, "Podaj nazwę stanowiska.")
     language = effective_language(user)
-    valid, reason = await validate_profession(title, language)
+    valid, reason = await validate_profession(title, language, user.country)
     if not valid:
         raise HTTPException(400, reason or f"„{title}” nie jest prawidłowym, legalnym zawodem. Wpisz prawdziwe stanowisko pracy.")
     qualifications = data.qualifications.strip()
@@ -1343,33 +1385,35 @@ async def task_resources(task_id: str, user: UserDoc = Depends(current_user)):
         return task["resources"]
     prof = await db.profiles.find_one({"user_id": user.id}) or {}
     city = (prof.get("answers") or {}).get("city", "") or ""
+    cfg = COUNTRY_CONFIG.get((path_country or "PL").upper()) or COUNTRY_CONFIG["PL"]
+    query_lang_name = LANGUAGE_NAMES.get(language, "polskim")
     prompt = f"""To jest odrębne, samodzielne zapytanie — dotyczy WYŁĄCZNIE poniższego jednego punktu drogi. Nie odwołuj się do innych
 zadań z tej ścieżki ani do żadnych wcześniejszych rozmów czy wcześniej wygenerowanych treści — nie istnieją.
-Ścieżka kariery: {doc['career']['title']}. Stanowisko docelowe: {milestone['title']}.
+Ścieżka kariery: {doc['career']['title']}. Stanowisko docelowe: {milestone['title']}. Rynek pracy/kraj: {cfg['name']}.
 Zadanie do zdobycia: {task['title']} — {task['description']} (typ: {task['type']}).
 Miejscowość użytkownika: {city or 'nie podano'}.
 
-Podpowiedz, jak zdobyć ten punkt. Jeśli to studia — opisz kierunek (lub 1-2 pokrewne kierunki), tryby (dzienne/zaoczne/podyplomowe), możliwe
-specjalizacje, gdzie szukać rekrutacji. DLA STUDIÓW NIGDY nie wskazuj jednej konkretnej uczelni jako jedynej słusznej drogi — zamiast tego
-podaj nazwę kierunku i wymień 2-3 PRZYKŁADOWE, różne uczelnie w Polsce, które go oferują, jako opcje do wyboru (np. "kierunek Logistyka —
-dostępny m.in. na Uniwersytecie Ekonomicznym w Krakowie, Politechnice Warszawskiej lub w WSB", a nie "idź na Logistykę na Politechnice Warszawskiej").
-Jeśli to umiejętność/program (np. Excel) — kanały YouTube, platformy szkoleniowe, jak korzystać darmowo (np. Excel w przeglądarce w Microsoft 365 online),
-kursy finansowane przez urząd pracy (bon szkoleniowy, KFS), webinary.
+Podpowiedz, jak zdobyć ten punkt, REALNIE dla rynku {cfg['name']} — NIGDY nie podawaj polskich instytucji/uczelni/programów, jeśli kraj
+to nie Polska. Jeśli to studia — opisz kierunek (lub 1-2 pokrewne kierunki), tryby (dzienne/zaoczne/podyplomowe), możliwe specjalizacje,
+gdzie szukać rekrutacji. DLA STUDIÓW NIGDY nie wskazuj jednej konkretnej uczelni jako jedynej słusznej drogi — zamiast tego podaj nazwę
+kierunku i wymień 2-3 PRZYKŁADOWE, różne, realne uczelnie w {cfg['name']}, które go oferują, jako opcje do wyboru.
+Jeśli to umiejętność/program (np. Excel) — kanały YouTube, platformy szkoleniowe, jak korzystać darmowo, kursy finansowane przez lokalny
+odpowiednik urzędu pracy w {cfg['name']} ({cfg['employment_agency']}), webinary.
 WAŻNE — bądź KONKRETNY, nie ogólnikowy, ale nie narzucaj jednej jedynej opcji tam, gdzie realnie jest wybór: dla KURSÓW/SZKOLEŃ/KANAŁÓW w "steps"
-i "free_tips" zawsze podawaj NAZWY WŁASNE — konkretny kurs/szkolenie, konkretną platformę lub kanał (np. "kurs »Excel od podstaw do zaawansowanego«
-na Udemy", "szkolenie kadrowo-płacowe finansowane z Krajowego Funduszu Szkoleniowego (KFS) w powiatowym urzędzie pracy", "kanał YouTube »ExcelPL«"),
-a nie ogólniki typu "znajdź kurs" czy "skorzystaj ze szkolenia". Jeśli dotyczy urzędu pracy, nazwij DOKŁADNIE jaki to rodzaj wsparcia (bon
-szkoleniowy, KFS, staż, dofinansowanie studiów podyplomowych, bon na zasiedlenie) i co trzeba tam zrobić (jaki wniosek, do kogo). Dla STUDIÓW
-(patrz wyżej) podawaj kierunek + kilka przykładowych uczelni, nigdy jedną wskazaną z imienia jako jedyną.
+i "free_tips" zawsze podawaj NAZWY WŁASNE — konkretny kurs/szkolenie, konkretną platformę lub kanał realnie dostępny w {cfg['name']}
+(np. "kurs »Excel od podstaw do zaawansowanego« na Udemy", "kanał YouTube »ExcelPL«"), a nie ogólniki typu "znajdź kurs" czy
+"skorzystaj ze szkolenia". Jeśli dotyczy lokalnego urzędu pracy, nazwij DOKŁADNIE formę wsparcia dostępną w {cfg['name']}
+({cfg['employment_agency']}) i co trzeba tam zrobić. Dla STUDIÓW (patrz wyżej) podawaj kierunek + kilka przykładowych uczelni w
+{cfg['name']}, nigdy jedną wskazaną z imienia jako jedyną, i nigdy uczelnię spoza tego kraju.
 Zwróć JSON:
 {{"overview": "1 zwięzłe zdanie, maks. 15 słów — czym jest ten punkt i dlaczego jest ważny",
  "steps": ["4-5 konkretnych, nazwanych z imienia kroków jak to zdobyć, każdy pełnym zdaniem, maks. 11 słów — jeśli nazwa kursu/uczelni grozi przekroczeniem limitu, pomiń resztę kontekstu, ale zmieść się w limicie"],
  "free_tips": ["2-4 konkretne, nazwane z imienia sposoby zrobienia tego za darmo lub taniej, pełne zdania, maks. 9 słów każdy"],
  "specializations": ["tylko dla studiów/kursów: możliwe specjalizacje, inaczej pusta lista"],
  "time_estimate": "ile to zwykle trwa",
- "resources": [{{"type": "youtube|course|studies|urzad_pracy|webinar|certificate|article", "platform": "np. YouTube, Coursera, Udemy, LinkedIn Learning, Google (dla studiów: nazwa uczelni jako JEDEN z kilku przykładów)",
+ "resources": [{{"type": "youtube|course|studies|urzad_pracy|webinar|certificate|article", "platform": "np. YouTube, Coursera, Udemy, LinkedIn Learning, Google (dla studiów: nazwa uczelni w {cfg['name']} jako JEDEN z kilku przykładów)",
                 "title": "konkretna, realna nazwa kursu/kanału/szkolenia, a dla studiów: nazwa kierunku (nie pojedyncza narzucona uczelnia)", "description": "1 zdanie, maks. 8 słów — co dokładnie zawiera i dlaczego warto",
-                "query": "fraza wyszukiwania po polsku"}}]}}
+                "query": "fraza wyszukiwania w języku {query_lang_name}"}}]}}
 Podaj 5-8 zasobów, w tym przynajmniej jeden YouTube i jeden urzad_pracy."""
     try:
         data = await ask_llm(FAST_MODEL, system_message(path_country, language), prompt)
@@ -1377,7 +1421,7 @@ Podaj 5-8 zasobów, w tym przynajmniej jeden YouTube i jeden urzad_pracy."""
         logger.exception("resources failed")
         raise HTTPException(502, "Nie udało się przygotować podpowiedzi. Spróbuj ponownie.")
     for r in data.get("resources", []):
-        r["url"] = resource_url(r, city)
+        r["url"] = resource_url(r, city, path_country)
     await db.roadmaps.update_one(
         {"user_id": user.id, "milestones.tasks.id": task_id},
         {"$set": {"milestones.$[].tasks.$[t].resources": data}},
@@ -1416,12 +1460,15 @@ Załóż przeciętne możliwości czasowe osoby uczącej się po godzinach (ok. 
 
 
 async def generate_weekly_plan_ai(context: str, country: str, language: str) -> dict:
+    cfg = COUNTRY_CONFIG.get((country or "PL").upper()) or COUNTRY_CONFIG["PL"]
     prompt = f"""{context}
+Rynek pracy/kraj: {cfg['name']}.
 
 Ułóż realistyczny plan nauki na 8 tygodni, skupiony na najbliższych punktach drogi. Każdy tydzień: cel i 3-5 konkretnych zadań z liczbą godzin.
-Uwzględnij darmowe materiały, kursy z urzędu pracy, ćwiczenia praktyczne i budowanie portfolio/CV. Nie wymyślaj konkretnych, brzmiących oficjalnie
-nazw firm/akademii/programów, których istnienia nie jesteś pewien — używaj ogólnych, realnych kategorii (platformy typu YouTube/Udemy/Coursera,
-szkolenia finansowane z KFS/bonu szkoleniowego w urzędzie pracy).
+Uwzględnij darmowe materiały, kursy z lokalnego odpowiednika urzędu pracy w {cfg['name']} ({cfg['employment_agency']}), ćwiczenia praktyczne
+i budowanie portfolio/CV. NIGDY nie zakładaj polskich instytucji/programów (urząd pracy, KFS, bon szkoleniowy), jeśli kraj to nie Polska.
+Nie wymyślaj konkretnych, brzmiących oficjalnie nazw firm/akademii/programów, których istnienia nie jesteś pewien — używaj ogólnych,
+realnych kategorii (platformy typu YouTube/Udemy/Coursera, lokalne programy wsparcia zatrudnienia w {cfg['name']}).
 Zwróć JSON:
 {{"hours_per_week": liczba, "summary": "1 zdanie, maks. 10 słów — podsumowanie planu i podejścia",
  "weeks": [{{"week": 1, "focus": "temat tygodnia", "goal": "1 zdanie, maks. 12 słów — co umiesz po tygodniu",
@@ -1565,7 +1612,8 @@ async def run_daily_plan(user_id: str, path_id: str, job_id: str, week_index: in
         f"- {WEEKDAY_NAMES_PL[d.weekday()]} ({d.isoformat()}): {'WOLNY, nic nie planuj' if d.weekday() in free_days else 'dzień nauki'}"
         for d in window
     )
-    prompt = f"""Ścieżka kariery: {doc['career']['title']}.
+    cfg = COUNTRY_CONFIG.get((country or "PL").upper()) or COUNTRY_CONFIG["PL"]
+    prompt = f"""Ścieżka kariery: {doc['career']['title']}. Rynek pracy/kraj: {cfg['name']}.
 Zadania do zdobycia (z ID), w kolejności drogi:
 {json.dumps(pending[:25], ensure_ascii=False)}
 
@@ -1580,10 +1628,12 @@ WAŻNE — realizm: każda czynność musi dać się faktycznie zrobić w czasie
 sugerujących ukończenie w jeden dzień czegoś, co trwa tygodnie/miesiące — np. NIE "ukończ kurs X", "zdobądź certyfikat Y",
 "zdobądź doświadczenie przez staż", "weź udział w szkoleniu Z" jako jednodniowe zadanie. Zamiast tego pisz o MAŁYM, konkretnym
 kroku w stronę tego celu, np. "Obejrzyj 1. lekcję kursu o sprzedaży IT na YouTube/Udemy", "Przeczytaj ofertę szkolenia
-finansowanego z KFS i zapisz potrzebne dokumenty", "Sprawdź 3 aktualne oferty stażu w urzędzie pracy i wybierz jedną do zgłoszenia",
-"Zrób pierwsze ćwiczenie z rozdziału 2 podręcznika/kursu". NIE wymyślaj konkretnych, brzmiących oficjalnie nazw firm/akademii/programów
-szkoleniowych ani nie twierdź z pewnością, że dana oferta (np. konkretny staż) jest akurat dostępna w konkretnym mieście użytkownika —
-jeśli nie masz pewności, formułuj czynność jako sprawdzenie/wyszukanie oferty, a nie jako pewnik.
+finansowanego przez {_agency_short_name(cfg)} i zapisz potrzebne dokumenty", "Sprawdź 3 aktualne oferty stażu w {_agency_short_name(cfg)}
+i wybierz jedną do zgłoszenia" (NIGDY nie zakładaj polskich instytucji typu KFS/urząd pracy, jeśli kraj to nie Polska — użyj
+lokalnego odpowiednika: {cfg['employment_agency']}), "Zrób pierwsze ćwiczenie z rozdziału 2 podręcznika/kursu". NIE wymyślaj
+konkretnych, brzmiących oficjalnie nazw firm/akademii/programów szkoleniowych ani nie twierdź z pewnością, że dana oferta
+(np. konkretny staż) jest akurat dostępna w konkretnym mieście użytkownika — jeśli nie masz pewności, formułuj czynność jako
+sprawdzenie/wyszukanie oferty, a nie jako pewnik.
 Jeśli zadanie jest bardzo długoterminowe (studia, wieloetapowy kurs, certyfikacja trwająca miesiące), oznacz powiązaną
 czynność jako long_term=true i zaplanuj dla niej tylko JEDNĄ czynność w CAŁYM tygodniu, najlepiej w ostatnim
 dniu nauki z listy powyżej — sformułowaną jako mały krok lub przegląd postępów, NIGDY jako "ukończ"/"zdobądź" (np.
@@ -1748,31 +1798,36 @@ async def daily_item_resources(item_id: str, user: UserDoc = Depends(current_use
         return item["resources"]
     prof = await db.profiles.find_one({"user_id": user.id}) or {}
     city = (prof.get("answers") or {}).get("city", "") or ""
+    item_country = (doc.get("country") or user.country or "PL").upper()
+    item_language = effective_language(user, item_country)
+    cfg = COUNTRY_CONFIG.get(item_country) or COUNTRY_CONFIG["PL"]
+    query_lang_name = LANGUAGE_NAMES.get(item_language, "polskim")
     prompt = f"""To jest odrębne, samodzielne zapytanie — dotyczy WYŁĄCZNIE poniższej jednej czynności. Nie odwołuj się do innych
 czynności z planu, innych zadań ani żadnych wcześniejszych rozmów czy wcześniej wygenerowanych treści — nie istnieją.
 Czynność z planu dnia na ścieżce kariery "{doc['career']['title']}": {item['title']} — {item['description']}.
-Miejscowość użytkownika: {city or 'nie podano'}.
+Miejscowość użytkownika: {city or 'nie podano'}. Rynek pracy/kraj: {cfg['name']}.
 
-Podpowiedz, jak dokładnie wykonać tę czynność dziś. Podaj konkretne, darmowe lub tanie materiały.
+Podpowiedz, jak dokładnie wykonać tę czynność dziś. Podaj konkretne, darmowe lub tanie materiały, REALNE dla rynku {cfg['name']}
+(platformy, instytucje, programy wsparcia faktycznie dostępne w tym kraju — NIGDY polskie instytucje/programy, jeśli kraj to nie Polska).
 WAŻNE — bądź KONKRETNY, nie ogólnikowy: w "steps" i "free_tips" podawaj NAZWY WŁASNE — konkretny kurs/szkolenie/kanał (np. "obejrzyj odcinek
-»Tabele przestawne krok po kroku« na kanale YouTube »Kurs Excel PL«"), a jeśli dotyczy urzędu pracy, nazwij dokładnie formę wsparcia
-(bon szkoleniowy, KFS, staż) — nie pisz ogólnie "znajdź kurs" czy "skorzystaj ze szkolenia". Jeśli dotyczy studiów, nigdy nie wskazuj jednej
-konkretnej uczelni jako jedynej słusznej — podaj kierunek i kilka przykładowych uczelni, które go oferują.
+»Tabele przestawne krok po kroku« na kanale YouTube »Kurs Excel«"), a jeśli dotyczy urzędu pracy, nazwij dokładnie formę wsparcia
+dostępną w {cfg['name']} ({cfg['employment_agency']}) — nie pisz ogólnie "znajdź kurs" czy "skorzystaj ze szkolenia". Jeśli dotyczy studiów,
+nigdy nie wskazuj jednej konkretnej uczelni w {cfg['name']} jako jedynej słusznej — podaj kierunek i kilka przykładowych uczelni, które go oferują.
 Zwróć JSON:
 {{"overview": "1 zdanie, maks. 15 słów — czym jest ta czynność i dlaczego pomaga w drodze do celu",
  "steps": ["3-4 konkretne, nazwane z imienia kroki, każdy pełnym zdaniem, maks. 11 słów — jeśli nazwa kursu/szkolenia grozi przekroczeniem limitu, pomiń resztę kontekstu, ale zmieść się w limicie"],
  "free_tips": ["2-3 konkretne, nazwane z imienia sposoby zrobienia tego za darmo, pełne zdania, maks. 9 słów każdy"], "specializations": [], "time_estimate": "ile to zwykle trwa",
  "resources": [{{"type": "youtube|course|studies|urzad_pracy|webinar|certificate|article", "platform": "np. YouTube, Coursera, Google",
                 "title": "konkretna, realna nazwa kursu/kanału/szkolenia (nie ogólnik)", "description": "1 zdanie, maks. 8 słów — co dokładnie zawiera",
-                "query": "fraza wyszukiwania po polsku"}}]}}
+                "query": "fraza wyszukiwania w języku {query_lang_name}"}}]}}
 Podaj 4-6 zasob\u00f3w, w tym przynajmniej jeden YouTube."""
     try:
-        data = await ask_llm(FAST_MODEL, system_message(doc.get("country") or user.country, effective_language(user, doc.get("country"))), prompt)
+        data = await ask_llm(FAST_MODEL, system_message(item_country, item_language), prompt)
     except Exception:
         logger.exception("daily item resources failed")
         raise HTTPException(502, "Nie udało się przygotować podpowiedzi. Spróbuj ponownie.")
     for r in data.get("resources", []):
-        r["url"] = resource_url(r, city)
+        r["url"] = resource_url(r, city, item_country)
     await db.roadmaps.update_one(
         {"user_id": user.id, "daily_plan.weeks.days.items.id": item_id},
         {"$set": {"daily_plan.weeks.$[].days.$[].items.$[it].resources": data}}, array_filters=[{"it.id": item_id}])
