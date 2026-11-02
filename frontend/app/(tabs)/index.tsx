@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, RefreshControl, Text, View } from "react-native";
 import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -8,20 +8,33 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, Career, Recommendations } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { Badge, Button, ErrorBox, Ionicons, AiNote, PressableScale, Txt } from "@/src/components/ui";
+import { Strings } from "@/src/i18n";
 import { StreakBadge } from "@/src/components/Streak";
 import { usesNativeTabs } from "@/src/navigation";
-import { RESET_MODES } from "@/src/quiz-steps";
+import { getResetModes } from "@/src/quiz-steps";
 import { queryClient } from "@/src/query-client";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
+
+// The backend always returns a canonical English token ("high"/"medium"/"low") for
+// demand/ai_risk, regardless of the user's interface language — this maps it to the
+// correctly-translated (and, for Polish, correctly-inflected) display word.
+function levelLabel(value: string, kind: "demand" | "aiRisk", t: Strings): string {
+  const map = {
+    demand: { high: t.matches.demandHigh, medium: t.matches.demandMedium, low: t.matches.demandLow },
+    aiRisk: { high: t.matches.aiRiskHigh, medium: t.matches.aiRiskMedium, low: t.matches.aiRiskLow },
+  } as const;
+  return map[kind][(value as "high" | "medium" | "low") in map[kind] ? (value as "high" | "medium" | "low") : "medium"];
+}
 
 export default function Matches() {
   const insets = useSafeAreaInsets();
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
   const styles = useStyles();
   const { colors } = useTheme();
-  const { t } = useAuth();
+  const { t, lang } = useAuth();
   const router = useRouter();
   const [tab, setTab] = useState<"now" | "future">("now");
+  const resetModes = useMemo(() => getResetModes(lang), [lang]);
 
   const q = useQuery({
     queryKey: ["recommendations"],
@@ -43,7 +56,7 @@ export default function Matches() {
         <View style={styles.titleRow}>
           <View style={{ flex: 1, gap: spacing.xs }}>
             <Txt variant="caption" testID="matches-mode">
-              {data?.mode && RESET_MODES[data.mode] ? RESET_MODES[data.mode].short : t.matches.headerFallback}
+              {data?.mode && resetModes[data.mode] ? resetModes[data.mode].short : t.matches.headerFallback}
             </Txt>
             <Txt variant="title">{t.matches.title}</Txt>
           </View>
@@ -144,8 +157,8 @@ function CareerCard({ career, index, onPress }: { career: Career; index: number;
           ) : null}
         </View>
         <View style={styles.metaRow}>
-          {career.demand ? <Badge label={`${t.matches.demandLabel}: ${career.demand}`} tone="success" /> : null}
-          {career.ai_risk ? <Badge label={`${t.matches.aiRiskLabel}: ${career.ai_risk}`} tone="neutral" /> : null}
+          {career.demand ? <Badge label={`${t.matches.demandLabel}: ${levelLabel(career.demand, "demand", t)}`} tone="success" /> : null}
+          {career.ai_risk ? <Badge label={`${t.matches.aiRiskLabel}: ${levelLabel(career.ai_risk, "aiRisk", t)}`} tone="neutral" /> : null}
         </View>
       </PressableScale>
     </Animated.View>

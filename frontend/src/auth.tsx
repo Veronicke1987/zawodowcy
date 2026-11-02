@@ -3,6 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { api, TOKEN_KEY } from "@/src/api";
 import { countryToLang, getStrings, Lang, Strings } from "@/src/i18n";
 import { LOCAL_COUNTRY_KEY } from "@/src/countries";
+import { LOCAL_LANGUAGE_KEY } from "@/src/languages";
 import { queryClient } from "@/src/query-client";
 import { storage } from "@/src/utils/storage";
 
@@ -16,6 +17,7 @@ export type User = {
   is_premium: boolean;
   streak?: Streak;
   country?: string;
+  ui_language?: Lang;
   roadmap_generations_used?: number;
   roadmap_generations_limit?: number;
 };
@@ -26,11 +28,12 @@ type AuthCtx = {
   lang: Lang;
   t: Strings;
   login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string, country?: string) => Promise<void>;
+  register: (name: string, email: string, password: string, country?: string, ui_language?: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
   completeAuth: (res: { access_token: string; user: User }) => Promise<void>;
   setLocalCountry: (country: string) => void;
+  setLocalLanguage: (language: Lang) => void;
 };
 
 const Ctx = createContext<AuthCtx>(null as unknown as AuthCtx);
@@ -39,15 +42,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [localCountry, setLocalCountry] = useState<string | null>(null);
+  const [localLanguage, setLocalLanguageState] = useState<Lang | null>(null);
 
   useEffect(() => {
     storage.getItem<string | null>(LOCAL_COUNTRY_KEY, null).then(setLocalCountry);
+    storage.getItem<Lang | null>(LOCAL_LANGUAGE_KEY, null).then(setLocalLanguageState);
   }, []);
 
-  // Decisive language: the logged-in account's own country once logged in (so an existing
-  // path/plan generated e.g. in English keeps reading as English even if the account later
-  // switches market) — otherwise the country chosen locally before registering.
-  const lang = useMemo(() => countryToLang(user?.country || localCountry), [user?.country, localCountry]);
+  const setLocalLanguage = useCallback((language: Lang) => {
+    storage.setItem(LOCAL_LANGUAGE_KEY, language);
+    setLocalLanguageState(language);
+  }, []);
+
+  // Interface language is fully INDEPENDENT of the job-search country: the logged-in account's
+  // own explicit choice once logged in (the backend always resolves this to a concrete value,
+  // see public_user()/effective_language() in server.py), otherwise whatever was picked locally
+  // before registering, otherwise a sensible default derived from the locally-picked country.
+  const lang = useMemo(
+    () => user?.ui_language || localLanguage || countryToLang(localCountry),
+    [user?.ui_language, localLanguage, localCountry],
+  );
   const t = useMemo(() => getStrings(lang), [lang]);
 
   const refresh = useCallback(async () => {
@@ -77,8 +91,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string) => {
     await handleAuth(await api("/auth/login", { method: "POST", body: { email, password } }));
   };
-  const register = async (name: string, email: string, password: string, country?: string) => {
-    await handleAuth(await api("/auth/register", { method: "POST", body: { name, email, password, country } }));
+  const register = async (name: string, email: string, password: string, country?: string, ui_language?: string) => {
+    await handleAuth(await api("/auth/register", { method: "POST", body: { name, email, password, country, ui_language } }));
   };
   const logout = async () => {
     await storage.secureRemove(TOKEN_KEY);
@@ -87,7 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <Ctx.Provider value={{ user, loading, lang, t, login, register, logout, refresh, completeAuth: handleAuth, setLocalCountry }}>{children}</Ctx.Provider>
+    <Ctx.Provider value={{ user, loading, lang, t, login, register, logout, refresh, completeAuth: handleAuth, setLocalCountry, setLocalLanguage }}>{children}</Ctx.Provider>
   );
 }
 

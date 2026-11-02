@@ -11,7 +11,7 @@ import { useAds } from "@/src/ads/AdsProvider";
 import { useAuth } from "@/src/auth";
 import { Button, Chip, ErrorBox, IconButton, IconName, Ionicons, Txt } from "@/src/components/ui";
 import { queryClient } from "@/src/query-client";
-import { Group, QUIZ_STEPS } from "@/src/quiz-steps";
+import { Group, getQuizSteps } from "@/src/quiz-steps";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 type Answers = Record<string, any>;
@@ -22,7 +22,7 @@ export default function Quiz() {
   const { colors } = useTheme();
   const router = useRouter();
   const { edit } = useLocalSearchParams<{ edit?: string }>();
-  const { refresh, t } = useAuth();
+  const { refresh, t, lang } = useAuth();
   const { watchAd, showAds } = useAds();
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Answers>({ personality: {} });
@@ -38,7 +38,8 @@ export default function Quiz() {
       .finally(() => setLoadingPrev(false));
   }, [edit]);
 
-  const steps = useMemo(() => QUIZ_STEPS.filter((s) => !s.showIf || s.showIf(answers)), [answers]);
+  const quizSteps = useMemo(() => getQuizSteps(lang), [lang]);
+  const steps = useMemo(() => quizSteps.filter((s) => !s.showIf || s.showIf(answers)), [quizSteps, answers]);
   const current = steps[Math.min(step, steps.length - 1)];
   const isLast = step >= steps.length - 1;
   const canNext = current.groups.every((g) => {

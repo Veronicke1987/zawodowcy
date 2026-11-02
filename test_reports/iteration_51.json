@@ -1,0 +1,32 @@
+{
+  "summary": "Verified the demand/ai_risk hardcoded-Polish-word bug fix. Backend: new pytest (test_iter51_demand_airisk_canonical.py) registers a DE-country user, sets ui_language=en, submits the exact profile from the request (Księgowa/Berlin), generates recommendations and asserts every career's 'demand' and 'ai_risk' field is exactly one of 'high'/'medium'/'low' — PASSED (all 10 careers canonical). Frontend: logged in as that same EN-interface user on the live matches screen — badges correctly render 'Demand: high', 'AI risk: medium', 'AI risk: low' etc. in English while job titles stayed German (Finanzbuchhalter/in, Controller/in...) and why/summary text in English — exactly per spec, zero raw tokens or Polish leakage. Logged in as existing Polish-interface user (ania_t1@test.pl) — badges show 'Popyt: średni' / 'Ryzyko AI: średnie' with correct Polish grammar (masculine for Popyt, neuter for Ryzyko AI). Light regression pass: quiz/recommendations language-country split (DE market + EN UI) re-confirmed working end-to-end alongside this fix, no new breakage observed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter51_demand_airisk_canonical.py",
+    "/app/test_reports/pytest/pytest_iter51_demand_ai_risk.xml"
+  ],
+  "action_items": [
+    "None — fix verified working as intended, no regressions found."
+  ],
+  "critical_code_review_comments": [
+    "LEVEL_WORDS/normalize_level() in server.py defaults unknown values to 'medium' (safe fallback) and covers pl/de/nl stray words plus the canonical en tokens — reasonable defensive normalization given LLM output variability.",
+    "Frontend levelLabel() in index.tsx correctly maps canonical token -> per-language, per-field (demand vs aiRisk) translated+inflected string via i18n; Polish file correctly differentiates masculine (wysoki/średni/niski) vs neuter (wysokie/średnie/niskie) forms — grammatically correct.",
+    "Note: pl-interface regression test only exercised 'medium' level (ania_t1's cached recommendations); did not observe live 'wysoki'/'niski'/'wysokie'/'niskie' forms in this session, but EN-equivalent high/medium/low tokens rendering correctly for the same component logic gives high confidence the Polish masculine/neuter mapping (verified via code read in pl.ts) is also correct."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (1/1 new test passed)", "frontend": "100% on requested checks"},
+  "seed_data_creation": "2 throwaway users created: TESTDEMAND_* (backend test, no profile persisted) and TESTDEMANDFE_54d063dc@test.pl / Test@123 (DE country, en ui_language, full recommendations generated) — left in DB, harmless, prefixed for identification.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "This was the final cosmetic fix for the language/country independence feature session. Demand/AI-risk canonical-token fix is CONFIRMED WORKING both at the backend (always returns high/medium/low) and frontend (translated+correctly-inflected per ui_language, including Polish's masculine/neuter grammar distinction). No further action needed on this feature; it can be considered complete.",
+  "rca_of_issue": "N/A — this iteration verifies a fix, not a new bug. Original bug RCA (from iteration_50): backend prompt previously hardcoded Polish words for demand/ai_risk which rendered raw on frontend regardless of ui_language. Fix: prompt now requests canonical English tokens, normalize_level() enforces exactly 3 canonical lowercase values server-side, and frontend's levelLabel() translates the canonical token via i18n per active ui_language."
+}

@@ -20,7 +20,7 @@ export default function AuthScreen() {
   const styles = useStyles();
   const router = useRouter();
   const { country: countryParam } = useLocalSearchParams<{ country?: string }>();
-  const { login, register, t } = useAuth();
+  const { login, register, t, lang } = useAuth();
   const [mode, setMode] = useState<"login" | "register">("register");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -44,7 +44,7 @@ export default function AuthScreen() {
     setLoading(true);
     try {
       if (mode === "login") await login(email.trim(), password);
-      else await register(name.trim(), email.trim(), password, country);
+      else await register(name.trim(), email.trim(), password, country, lang);
       router.replace("/");
     } catch (e: any) {
       setError(e.message);

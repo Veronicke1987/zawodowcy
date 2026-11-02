@@ -9,6 +9,7 @@ import { useAds } from "@/src/ads/AdsProvider";
 import { useAuth } from "@/src/auth";
 import { Button, Ionicons, IconName, PressableScale, Txt } from "@/src/components/ui";
 import { COUNTRIES } from "@/src/countries";
+import { UI_LANGUAGES } from "@/src/languages";
 import { StreakCard } from "@/src/components/Streak";
 import { usesNativeTabs } from "@/src/navigation";
 import { queryClient } from "@/src/query-client";
@@ -26,6 +27,7 @@ export default function Profile() {
   const [regen, setRegen] = useState(false);
   const [msg, setMsg] = useState("");
   const [savingCountry, setSavingCountry] = useState<string | null>(null);
+  const [savingLanguage, setSavingLanguage] = useState<string | null>(null);
 
   const selectCountry = async (code: string) => {
     if (savingCountry || code === (user?.country || "PL")) return;
@@ -39,6 +41,21 @@ export default function Profile() {
       setMsg(e.message);
     } finally {
       setSavingCountry(null);
+    }
+  };
+
+  const selectLanguage = async (code: string) => {
+    if (savingLanguage || code === lang) return;
+    setMsg("");
+    setSavingLanguage(code);
+    try {
+      await api("/account/language", { method: "PATCH", body: { language: code } });
+      await refresh();
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    } catch (e: any) {
+      setMsg(e.message);
+    } finally {
+      setSavingLanguage(null);
     }
   };
 
@@ -111,6 +128,34 @@ export default function Profile() {
                   <Txt variant="caption">
                     {t.profile.langSuffix} {c.langNames[lang]}
                   </Txt>
+                </View>
+                {saving ? (
+                  <ActivityIndicator color={colors.brandPrimary} size="small" />
+                ) : (
+                  <Ionicons name={active ? "radio-button-on" : "radio-button-off"} size={22} color={active ? colors.brandPrimary : colors.borderStrong} />
+                )}
+              </PressableScale>
+            );
+          })}
+        </View>
+
+        <View style={{ gap: spacing.md }}>
+          <Txt variant="heading">{t.profile.languageHeading}</Txt>
+          <Txt variant="caption">{t.profile.languageSub}</Txt>
+          {UI_LANGUAGES.map((l) => {
+            const active = lang === l.code;
+            const saving = savingLanguage === l.code;
+            return (
+              <PressableScale
+                key={l.code}
+                testID={`language-option-${l.code}`}
+                onPress={() => selectLanguage(l.code)}
+                disabled={!!savingLanguage}
+                style={[styles.themeCard, { borderColor: active ? colors.brandPrimary : colors.border }]}
+              >
+                <Text style={styles.flag}>{l.flag}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.themeTitle}>{l.nativeName}</Text>
                 </View>
                 {saving ? (
                   <ActivityIndicator color={colors.brandPrimary} size="small" />

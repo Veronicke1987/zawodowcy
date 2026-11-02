@@ -54,7 +54,8 @@ export type Strings = {
   countrySelect: {
     title: string;
     subtitle: string;
-    langSuffix: string; // "Treści AI w języku {lang}" — {lang} substituted
+    languageLabel: string; // header above the independent interface-language picker
+    marketCaption: string; // generic caption shown under every country card
   };
   auth: {
     loginTab: string;
@@ -144,6 +145,12 @@ export type Strings = {
     matchSuffix: string;
     demandLabel: string;
     aiRiskLabel: string;
+    demandHigh: string;
+    demandMedium: string;
+    demandLow: string;
+    aiRiskHigh: string;
+    aiRiskMedium: string;
+    aiRiskLow: string;
   };
   career: {
     badgeNow: string;
@@ -253,6 +260,8 @@ export type Strings = {
     planRowSub: string;
     countryHeading: string;
     countrySub: string;
+    languageHeading: string;
+    languageSub: string;
     styleHeading: string;
     answersHeading: string;
     editQuiz: string;
