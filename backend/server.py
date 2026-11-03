@@ -1119,9 +1119,9 @@ kraju {cfg['name']}. Zwróć JSON:
 
 # ---------------------------------------------------------------- premium (demo mode, no real payments yet)
 PREMIUM_PATH_LIMIT = 3
-PREMIUM_MONTHLY_GENERATIONS = 25  # new career-path generations per month included with Premium; the weekly/daily
+PREMIUM_MONTHLY_GENERATIONS = 35  # new career-path generations per month included with Premium; the weekly/daily
 # study plan for an already-generated path is always free and never counts against this.
-RECS_MONTHLY_GENERATIONS = 25  # (re)generations of the career-recommendations list per month included with
+RECS_MONTHLY_GENERATIONS = 35  # (re)generations of the career-recommendations list per month included with
 # Premium — mirrors PREMIUM_MONTHLY_GENERATIONS above. Free users already pay 1 ad per regenerate (see
 # reasonRegenerateCareers in AdsProvider); past this quota, Premium also needs to watch an ad to continue,
 # since each call is a full, non-cacheable AI generation of 8 personalized careers.
