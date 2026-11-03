@@ -6,9 +6,10 @@ import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAds } from "@/src/ads/AdsProvider";
+import { useContentUnlock } from "@/src/ads/useContentUnlock";
 import { api, DailyItem, DailyPlan, StudyPlan, StudyPlanItem, TaskResources } from "@/src/api";
 import { useAuth } from "@/src/auth";
-import { AiNote, Badge, Button, Chip, ErrorBox, IconButton, Ionicons, PressableScale, Txt } from "@/src/components/ui";
+import { AdUnlockGate, AiNote, Badge, Button, Chip, ErrorBox, IconButton, Ionicons, PressableScale, Txt } from "@/src/components/ui";
 import { Block, ResourceRow, Sheet, useTaskSheetStyles } from "@/src/components/TaskSheet";
 import { queryClient } from "@/src/query-client";
 import { playSuccess } from "@/src/sound";
@@ -343,12 +344,22 @@ function DailyItemSheet({ item, onClose }: { item: DailyItem | null; onClose: ()
   const styles = useTaskSheetStyles();
   const { colors } = useTheme();
   const { t } = useAuth();
+  const [unlocking, setUnlocking] = useState(false);
+  const { unlocked, checking, unlock } = useContentUnlock(item ? `daily:${item.id}` : null, t.ads.reasonDailyItemResources);
   const q = useQuery({
     queryKey: ["daily-item-resources", item?.id],
     queryFn: () => api<TaskResources>(`/roadmap/daily-plan/items/${item!.id}/resources`),
-    enabled: !!item,
+    enabled: !!item && unlocked,
   });
   const data = q.data;
+  const handleUnlock = async () => {
+    setUnlocking(true);
+    try {
+      await unlock();
+    } finally {
+      setUnlocking(false);
+    }
+  };
 
   return (
     <Sheet visible={!!item} onClose={onClose} testID="daily-item-sheet">
@@ -363,7 +374,13 @@ function DailyItemSheet({ item, onClose }: { item: DailyItem | null; onClose: ()
             </View>
           </View>
           <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.lg }} showsVerticalScrollIndicator={false}>
-            {q.isLoading ? (
+            {!unlocked ? (
+              checking ? (
+                <ActivityIndicator style={styles.loading} color={colors.brandPrimary} />
+              ) : (
+                <AdUnlockGate testID="daily-item-unlock-gate" onUnlock={handleUnlock} loading={unlocking} />
+              )
+            ) : q.isLoading ? (
               <ActivityIndicator style={styles.loading} color={colors.brandPrimary} />
             ) : q.isError ? (
               <ErrorBox testID="daily-item-resources-error" message={(q.error as Error).message} onRetry={() => q.refetch()} />

@@ -1,11 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import * as WebBrowser from "expo-web-browser";
+import { useState } from "react";
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useContentUnlock } from "@/src/ads/useContentUnlock";
 import { api, Milestone, Resource, Task, TaskResources } from "@/src/api";
 import { useAuth } from "@/src/auth";
-import { AiNote, Button, ErrorBox, IconButton, Ionicons, IconName, PressableScale, Txt } from "@/src/components/ui";
+import { AdUnlockGate, AiNote, Button, ErrorBox, IconButton, Ionicons, IconName, PressableScale, Txt } from "@/src/components/ui";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 const TYPE_ICON: Record<string, IconName> = {
@@ -38,13 +40,23 @@ export function TaskSheet({ task, onClose, onToggle }: { task: Task | null; onCl
   const styles = useTaskSheetStyles();
   const { colors } = useTheme();
   const { t } = useAuth();
+  const [unlocking, setUnlocking] = useState(false);
+  const { unlocked, checking, unlock } = useContentUnlock(task ? `task:${task.id}` : null, t.ads.reasonTaskResources);
   const q = useQuery({
     queryKey: ["resources", task?.id],
     queryFn: () => api<TaskResources>(`/roadmap/tasks/${task!.id}/resources`),
-    enabled: !!task,
+    enabled: !!task && unlocked,
     staleTime: Infinity,
   });
   const r = q.data;
+  const handleUnlock = async () => {
+    setUnlocking(true);
+    try {
+      await unlock();
+    } finally {
+      setUnlocking(false);
+    }
+  };
   return (
     <Sheet visible={!!task} onClose={onClose} testID="task-sheet">
       {task ? (
@@ -67,7 +79,15 @@ export function TaskSheet({ task, onClose, onToggle }: { task: Task | null; onCl
               variant={task.done ? "secondary" : "primary"}
               onPress={() => onToggle(task)}
             />
-            {q.isLoading ? (
+            {!unlocked ? (
+              checking ? (
+                <View style={styles.loading} testID="task-unlock-checking">
+                  <ActivityIndicator color={colors.brandPrimary} />
+                </View>
+              ) : (
+                <AdUnlockGate testID="task-unlock-gate" onUnlock={handleUnlock} loading={unlocking} />
+              )
+            ) : q.isLoading ? (
               <View style={styles.loading} testID="task-resources-loading">
                 <ActivityIndicator color={colors.brandPrimary} />
                 <Txt style={{ flex: 1 }}>{t.road.loadingResources}</Txt>

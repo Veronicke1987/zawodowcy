@@ -9,9 +9,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, Path } from "react-native-svg";
 
 import { useAds } from "@/src/ads/AdsProvider";
+import { useContentUnlock } from "@/src/ads/useContentUnlock";
 import { api, Career, PathsResponse } from "@/src/api";
 import { useAuth } from "@/src/auth";
-import { Badge, Button, ErrorBox, IconButton, Ionicons, IconName, AiNote, PressableScale, Txt } from "@/src/components/ui";
+import { AdUnlockGate, Badge, Button, ErrorBox, IconButton, Ionicons, IconName, AiNote, PressableScale, Txt } from "@/src/components/ui";
 import { queryClient } from "@/src/query-client";
 import { playSuccess } from "@/src/sound";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
@@ -62,16 +63,29 @@ export default function CareerDetail() {
   const [celebrate, setCelebrate] = useState(false);
   const [chooseError, setChooseError] = useState("");
   const [limitHit, setLimitHit] = useState(false);
+  const [unlocking, setUnlocking] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
   }, []);
 
+  const { unlocked, checking, unlock } = useContentUnlock(id ? `career:${id}` : null, t.ads.reasonCareerDetail);
+
   const q = useQuery({
     queryKey: ["career", id],
     queryFn: () => api<{ career: Career; detail: Detail; job_links: { label: string; url: string }[] }>(`/careers/${id}`),
     staleTime: Infinity,
+    enabled: !!id && unlocked,
   });
+
+  const handleUnlock = async () => {
+    setUnlocking(true);
+    try {
+      await unlock();
+    } finally {
+      setUnlocking(false);
+    }
+  };
 
   const choose = async () => {
     if (choosing) return;
@@ -147,6 +161,14 @@ export default function CareerDetail() {
               <ActivityIndicator color={colors.brandPrimary} />
               <Txt>{t.career.loadingDetail}</Txt>
             </View>
+          ) : !unlocked ? (
+            checking ? (
+              <View style={styles.loading} testID="career-unlock-checking">
+                <ActivityIndicator color={colors.brandPrimary} />
+              </View>
+            ) : (
+              <AdUnlockGate testID="career-unlock-gate" onUnlock={handleUnlock} loading={unlocking} />
+            )
           ) : q.isError ? (
             <ErrorBox testID="career-error" message={(q.error as Error).message} onRetry={() => q.refetch()} />
           ) : d ? (
@@ -209,19 +231,23 @@ export default function CareerDetail() {
       </View>
 
       <View style={[styles.sticky, { paddingBottom: insets.bottom + spacing.md }]}>
-        {chooseError ? <ErrorBox testID="choose-error" message={chooseError} /> : null}
-        {!limitHit && showAds && !alreadyMine && !atLimit ? (
-          <Text style={styles.notice} testID="choose-ad-notice">
-            {t.career.adNotice}{" "}
-            <Text style={styles.noticeLink} testID="choose-go-premium" onPress={() => router.push("/premium")} suppressHighlighting>
-              {t.career.goPremiumInline}
-            </Text>
-          </Text>
+        {unlocked ? (
+          <>
+            {chooseError ? <ErrorBox testID="choose-error" message={chooseError} /> : null}
+            {!limitHit && showAds && !alreadyMine && !atLimit ? (
+              <Text style={styles.notice} testID="choose-ad-notice">
+                {t.career.adNotice}{" "}
+                <Text style={styles.noticeLink} testID="choose-go-premium" onPress={() => router.push("/premium")} suppressHighlighting>
+                  {t.career.goPremiumInline}
+                </Text>
+              </Text>
+            ) : null}
+            {limitHit ? (
+              <Button testID="choose-manage-paths" title={t.career.managePaths} variant="ghost" onPress={() => router.dismissTo("/(tabs)/road")} />
+            ) : null}
+            <Button testID="choose-path-button" title={t.career.chooseButton} icon="flag" onPress={choose} loading={choosing} disabled={!d} />
+          </>
         ) : null}
-        {limitHit ? (
-          <Button testID="choose-manage-paths" title={t.career.managePaths} variant="ghost" onPress={() => router.dismissTo("/(tabs)/road")} />
-        ) : null}
-        <Button testID="choose-path-button" title={t.career.chooseButton} icon="flag" onPress={choose} loading={choosing} disabled={!d} />
       </View>
 
       <Modal visible={celebrate} transparent animationType="fade" statusBarTranslucent>

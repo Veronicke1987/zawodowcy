@@ -225,3 +225,26 @@ export function AiNote({ style, testID }: { style?: StyleProp<ViewStyle>; testID
     </View>
   );
 }
+
+// Per-user paywall teaser shown instead of lazily-AI-generated content (career description,
+// task/daily-item resources) until THIS user has unlocked it — by watching an ad, or being
+// Premium. Pair with the `useContentUnlock` hook.
+export function AdUnlockGate({ onUnlock, loading, testID }: { onUnlock: () => void; loading?: boolean; testID?: string }) {
+  const { colors } = useTheme();
+  const { t } = useAuth();
+  return (
+    <View testID={testID ?? "ad-unlock-gate"} style={{ alignItems: "center", gap: spacing.md, paddingVertical: spacing.xl, paddingHorizontal: spacing.lg }}>
+      <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" }}>
+        <Ionicons name="lock-closed" size={24} color={colors.onBrandTertiary} />
+      </View>
+      <Txt variant="heading" style={{ textAlign: "center" }}>
+        {t.ads.unlockTitle}
+      </Txt>
+      <Text style={{ textAlign: "center", fontFamily: fonts.medium, fontSize: 13, lineHeight: 19, color: colors.muted }}>
+        {t.ads.unlockText}
+      </Text>
+      <Button testID={`${testID ?? "ad-unlock-gate"}-button`} title={t.ads.unlockButton} icon="play-circle" onPress={onUnlock} loading={loading} />
+    </View>
+  );
+}
+

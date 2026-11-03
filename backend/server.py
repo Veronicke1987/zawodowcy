@@ -125,6 +125,14 @@ class UserDoc(BaseDocument):
     # generated text. None means "never explicitly chosen" — callers fall back to the
     # country's own native language for backward compatibility with pre-existing accounts.
     ui_language: Optional[str] = None
+    # Opaque IDs of AI-generated content (career descriptions, roadmap-task resources,
+    # daily-plan-item resources) this specific user has already "unlocked" — i.e. already
+    # watched an ad for (or is Premium). Shared across ALL users via career_templates/DB
+    # caching for the underlying AI call itself, but the ad/paywall in front of it is always
+    # per-user: a user must "pay" (watch an ad, or be Premium) the first time THEY open a
+    # given piece of content, even if another user already generated it earlier. See
+    # /content/unlock-status and /content/unlock below.
+    unlocked_ids: list[str] = []
 
 
 class Credentials(BaseModel):
@@ -941,6 +949,28 @@ async def set_language(data: LanguageIn, user: UserDoc = Depends(current_user)):
     await db.users.update_one({"_id": ObjectId(user.id)}, {"$set": {"ui_language": code}})
     user = UserDoc.from_mongo(await db.users.find_one({"_id": ObjectId(user.id)}))
     return await public_user(user)
+
+
+class UnlockIn(BaseModel):
+    id: str = Field(min_length=1, max_length=120)
+
+
+@api.get("/content/unlock-status")
+async def content_unlock_status(id: str, user: UserDoc = Depends(current_user)):
+    """Whether THIS user may see a given piece of lazily-AI-generated content (career
+    description, roadmap-task resources, daily-plan-item resources) without watching an ad
+    first. Always true for Premium. For free users, true only once they've already unlocked
+    this exact content ID before — independent of whether the underlying AI content is
+    already cached in the DB from some OTHER user having generated it first."""
+    return {"unlocked": is_premium(user) or id in (user.unlocked_ids or [])}
+
+
+@api.post("/content/unlock")
+async def content_unlock(data: UnlockIn, user: UserDoc = Depends(current_user)):
+    """Marks a content ID as unlocked for this user (called right after they watch the ad,
+    or immediately for Premium) so they never have to watch an ad for the SAME content again."""
+    await db.users.update_one({"_id": ObjectId(user.id)}, {"$addToSet": {"unlocked_ids": data.id}})
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------- recommendations

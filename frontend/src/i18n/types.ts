@@ -25,9 +25,15 @@ export type Strings = {
     reasonRestOfWeek: string;
     reasonNextBlock: string;
     reasonRestoreStreak: string;
+    reasonCareerDetail: string; // opening a career's AI-generated description for the first time
+    reasonTaskResources: string; // opening a roadmap task's AI-generated resources for the first time
+    reasonDailyItemResources: string; // opening a daily-plan item's AI-generated resources for the first time
     defaultReason: string; // fallback used when no specific reason string is passed
     adLabel: string; // "REKLAMA" pill when there's only one ad
     adLabelCounted: (index: number, total: number) => string; // "REKLAMA 1/2"
+    unlockTitle: string; // heading on the "watch an ad to reveal this AI content" teaser
+    unlockText: string; // body text on that teaser
+    unlockButton: string; // CTA on that teaser
     introTitleQuota: string;
     introTitleSecond: string;
     introTitleFirst: string;
