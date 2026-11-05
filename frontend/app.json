@@ -56,7 +56,7 @@
         "expo-build-properties",
         {
           "android": {
-            "extraProguardRules": "-keep class com.google.android.gms.ads.** { *; }\n-keep class com.google.android.gms.internal.ads.** { *; }\n-dontwarn com.google.android.gms.ads.**"
+            "extraProguardRules": "-keep class com.google.android.gms.ads.** { *; }\n-keep class com.google.android.gms.internal.ads.** { *; }\n-dontwarn com.google.android.gms.ads.**\n-keep class * extends androidx.room.RoomDatabase { <init>(); }\n-keep class androidx.work.impl.WorkDatabase_Impl { *; }\n-keepclassmembers class androidx.work.impl.WorkDatabase_Impl {\n    public <init>();\n}\n-keep class androidx.work.impl.** { *; }\n-dontwarn androidx.work.**"
           }
         }
       ]
