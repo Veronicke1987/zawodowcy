@@ -1,12 +1,15 @@
 // Native: real AdMob ads in a development/production build. Expo Go has no native
 // AdMob module, so the guarded require fails closed and the app shows a simulated ad.
 //
-// TEMPORARILY DISABLED (see app.json — the "react-native-google-mobile-ads" config plugin
-// was removed) while diagnosing a crash-on-launch reported on real Play Store installs:
-// removing the plugin means the native module is no longer linked into the build at all, so
-// the require() below will fail and `adsAvailable` will be false everywhere — ads are simply
-// skipped, nothing else needs to change. Once the crash is confirmed fixed/unrelated, restore
-// the plugin block in app.json (see its git history) to bring real ads back.
+// RE-ENABLED: the "react-native-google-mobile-ads" config plugin is back in app.json,
+// using Google's public TEST App IDs for now (zero revenue, but never fails Play Store
+// review). The production crash-on-launch was caused by two missing native-build pieces,
+// both now fixed in app.json: the AD_ID permission (required on Android 13+/API 33+ for
+// any app that reads the Advertising ID) and ProGuard keep-rules for the Google Mobile Ads
+// SDK (release builds minify/strip classes that debug builds don't, which is why it only
+// crashed on real Play Store installs and never in development). See expo-build-properties
+// plugin entry for the ProGuard rules. Swap in real AdMob App IDs / Ad Unit IDs once a live
+// AdMob account is ready — no other code changes needed, see EXPO_PUBLIC_ADMOB_* below.
 import Constants from "expo-constants";
 
 let sdk: any = null;

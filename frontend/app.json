@@ -9,14 +9,17 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.resetzawodu.zmppx3"
+      "bundleIdentifier": "com.emergent.zawodowcyai"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#FA5252"
       },
-      "package": "com.emergent.zawodowcy.ai"
+      "package": "com.emergent.zawodowcy.ai",
+      "permissions": [
+        "com.google.android.gms.permission.AD_ID"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -41,7 +44,22 @@
       "expo-status-bar",
       "expo-audio",
       "@react-native-vector-icons/ionicons",
-      "expo-asset"
+      "expo-asset",
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-3940256099942544~3347511713",
+          "iosAppId": "ca-app-pub-3940256099942544~1458002511"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "extraProguardRules": "-keep class com.google.android.gms.ads.** { *; }\n-keep class com.google.android.gms.internal.ads.** { *; }\n-dontwarn com.google.android.gms.ads.**"
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
