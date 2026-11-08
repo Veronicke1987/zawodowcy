@@ -1087,21 +1087,24 @@ async def run_recommendations(user_id: str, answers: dict, job_id: str, country:
 Rynek pracy/kraj: {cfg['name']} (portale: {cfg['job_portals']}).
 
 Zaproponuj zawody dopasowane do tej osoby, REALNE dla rynku pracy w {cfg['name']} (nie dla innego kraju) i ZGODNE z jej wykształceniem/doświadczeniem, w dwóch kategoriach:
-- "now": 4 zawody, które może wykonywać JUŻ TERAZ z obecnymi umiejętnościami i wykształceniem (wymagania typowych ofert spełnia lub prawie spełnia),
-- "future": 4 zawody osiągalne po JEDNYM krótkim kursie/certyfikacie (dni-tygodnie, NIE miesiące/lata) — NIGDY zawody wymagające wieloletnich,
-formalnych studiów/uprawnień (np. księgowy, prawnik, pielęgniarka, nauczyciel, lekarz), chyba że użytkownik ma już wykształcenie w tym kierunku —
-krótki kurs NIE zamienia osoby z wykształceniem podstawowym w księgowego czy prawnika.
+- "now": 4 zawody, które może wykonywać JUŻ TERAZ z obecnymi umiejętnościami, wykształceniem i doświadczeniem zawodowym (wymagania typowych ofert spełnia lub prawie spełnia),
+- "future": 4 zawody osiągalne po jednym realnym kroku dalej.
 
-KRYTYCZNE, w OBU kategoriach: jeśli wykształcenie użytkownika to podstawowe/zasadnicze zawodowe/puste LUB nie ma on doświadczenia biurowego/kierowniczego
-— NIGDY nie używaj w nazwie stanowiska słów: "specjalista", "koordynator", "konsultant", "analityk", "kierownik", "menedżer" — te słowa niemal zawsze
-oznaczają wymagane wykształcenie/doświadczenie, którego ta osoba nie ma. NIE wymyślaj też sztucznych nazw łączących te słowa z zainteresowaniami
-użytkownika (np. ŹLE dla podstawowego wykształcenia: "koordynator wydarzeń sportowych", "specjalista ds. rozliczeń w biurze rachunkowym"; DOBRZE:
-sprzedawca w sklepie sportowym, pracownik siłowni, ratownik po kursie WOPR, obsługa obiektu sportowego). Jeśli zainteresowanie nie ma realnego,
-prostego zawodowego odpowiednika — zaproponuj zwykły, dobrze dopasowany zawód bez naciągania na to zainteresowanie.
+NAJPIERW oceń poziom kwalifikacji tej osoby na podstawie CAŁEGO profilu (wykształcenie, studia podyplomowe/certyfikaty jak SAP/ERP, obecne/poprzednie
+stanowisko, branża, narzędzia jak Excel/ERP) — to ten poziom decyduje o doborze zawodów, NIE sztywna lista przykładów poniżej:
 
-W OBU kategoriach zachowaj równowagę: PRZYNAJMNIEJ POŁOWA propozycji w każdej kategorii to zawody powszechnie znane i masowo poszukiwane w {cfg['name']}
-(np. pracownik budowlany, sprzedawca, kucharz/kelner, kierowca, opiekun/opiekunka, magazynier, recepcjonista, ochroniarz, pracownik produkcji/sprzątający) —
-NIE same nietypowe/niszowe stanowiska. Reszta może być mniej oczywista, jeśli REALNIE i bez naciągania pasuje do profilu.
+- Osoba z wyższym wykształceniem, studiami podyplomowymi/certyfikatami zawodowymi LUB konkretnym doświadczeniem biurowym/wdrożeniowym/IT/HR/SAP/ERP
+itp. → DOPASUJ zawody na tym samym lub wyższym poziomie (specjalista, analityk, konsultant, kierownik projektu, wdrożeniowiec itp. są jak najbardziej
+WSKAZANE) — w "future" krok dalej oznacza awans/specjalizację/pokrewną branżę, NIE cofnięcie się do prostej pracy fizycznej poniżej jej kwalifikacji
+(np. kierowca, magazynier, opiekun zwierząt są ZŁYM dopasowaniem dla inżyniera z certyfikatem SAP, nawet jeśli to zawody "bezpieczne" i popularne).
+- Osoba z wykształceniem podstawowym/zasadniczym zawodowym/pustym I bez specjalistycznego doświadczenia → NIGDY nie używaj słów "specjalista",
+"koordynator", "konsultant", "analityk", "kierownik", "menedżer" (wymagają kwalifikacji, których nie ma), "future" = krótki kurs/certyfikat
+(dni-tygodnie, NIE wieloletnie studia jak księgowy/prawnik/pielęgniarka/nauczyciel/lekarz), i w OBU kategoriach PRZYNAJMNIEJ POŁOWA propozycji to
+zawody powszechnie znane i masowo poszukiwane w {cfg['name']} (np. pracownik budowlany, sprzedawca, kucharz/kelner, kierowca, opiekun/opiekunka,
+magazynier, recepcjonista, ochroniarz, pracownik produkcji/sprzątający) — nie same niszowe. NIE wymyślaj sztucznych nazw łączących te słowa z
+zainteresowaniami (np. ŹLE: "koordynator wydarzeń sportowych"); jeśli zainteresowanie nie ma prostego odpowiednika zawodowego — zaproponuj zwykły
+zawód bez naciągania na nie.
+
 Weź pod uwagę to, czego użytkownik nie lubi, jego charakter i odporność zawodu na automatyzację przez AI.
 {avoid_block}
 {MODE_RULES.get(answers.get("reset_mode") or "search", MODE_RULES["search"])}
