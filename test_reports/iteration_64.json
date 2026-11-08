@@ -1,0 +1,44 @@
+{
+  "summary": "Tested the 3 isolated changes from this session: (1) delete-single-career feature, (2) regeneration diversity fix via shown_titles, (3) '25'->'35' text fix on Premium/AiInfoModal/i18n. All 3 work correctly in both backend (pytest) and frontend (Playwright, mobile viewport, logged in as ania_t1@test.pl). Backend: DELETE /api/recommendations/careers/{id} returns 404 for nonexistent id, removes the matching career from now/future and persists (verified via follow-up GET), re-delete of same id correctly 404s again. shown_titles field is present/returned by GET /api/recommendations, capped at 24 entries, and two sequential POST /api/recommendations/generate calls for the same profile produced only 25% title overlap (2/8) - confirms the anti-repetition fix works (must run sequentially; running delete+regen tests in parallel via pytest-xdist on the same user/doc caused false skips/flaky overlap due to shared mutable doc - not a product bug, a test-concurrency artifact, resolved by running with -n0). Frontend: trash icon on each career card opens the confirm modal (career-delete-N -> matches-delete-dialog), Anuluj leaves the list untouched (8 cards), clicking the trash icon does NOT navigate to career detail (URL stayed on '/'), Usuń zawód removes exactly the targeted card (8->7) and persists on next load. Tapping the rest of the card body still navigates correctly to /career/{id} (regression intact). 'Już teraz'/'Z nauką' tab switch still works (8 now / 4 future items). Premium screen (/premium) shows '35' in header perk, perk description, and the usage counter ('Wykorzystano 1 z 35 nowych ścieżek w tym miesiącu') with zero occurrences of '25' on the page; grepped premium.tsx, AiInfoModal.tsx and all 4 i18n files (pl/en/de/nl) - all consistently show 35.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Zawody (matches list)",
+        "issues": [
+          "Pre-existing, unrelated to this session's changes: one custom career card for ania_t1@test.pl ('Grafik komputerowy') shows its subtitle in English ('Your own career goal.') while another custom card ('Elektryk'/'Spawacz TIG') correctly shows the Polish text ('Twój własny cel zawodowy.') - looks like a stale/mistranslated custom-career record in seed data rather than a bug in the 3 changes tested here. Flagging for visibility, not blocking."
+        ]
+      }
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter64_delete_career_and_regen_diversity.py",
+    "/app/test_reports/pytest/pytest_iter64.xml"
+  ],
+  "action_items": [
+    "No fixes required for the 3 changes under test - all verified working as described.",
+    "Optional/low-priority: investigate the one custom career record with English subtitle text for ania_t1@test.pl (cosmetic, pre-existing, not part of this session's scope)."
+  ],
+  "critical_code_review_comments": [
+    "delete_recommended_career() correctly uses $pull on both now/future arrays in one update and checks modified_count for 404 - clean and atomic.",
+    "shown_titles dedupe via list(dict.fromkeys(...))[-RECS_HISTORY_LIMIT:] preserves order and caps at 24 as documented; prompt's avoid_block correctly lists prior titles to steer the LLM away from repeats.",
+    "Frontend CareerCard delete icon correctly calls e.stopPropagation() before onDelete() to prevent the outer PressableScale's onPress (navigation) from firing - good defensive pattern.",
+    "Text fix for 35 is consistent across premium.tsx, AiInfoModal.tsx and all 4 i18n locale files - no leftover '25' found via grep."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (4/4 pytest cases passed when run without xdist parallelism)",
+    "frontend": "100% (all manual Playwright flows passed: login, delete confirm/cancel, no-navigation-on-delete-icon, tab switch, premium screen text)"
+  },
+  "seed_data_creation": "None - reused existing ania_t1@test.pl recommendations; one AI-suggested career ('Pielęgniarka') was deleted from her list during testing via the new delete feature as part of verifying the flow end-to-end (this is a real deletion caused by exercising the new feature itself, not test scaffolding removed afterward - acceptable since this is the exact feature being validated, but noting it changed her live data).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All 3 changes (delete career, regen diversity via shown_titles, 25->35 text fix) are confirmed working in both backend and frontend. Note ania_t1@test.pl's recommendations list now has one fewer AI career ('Pielęgniarka' removed) and was regenerated twice during testing - her list content has changed as a natural side effect of exercising the new delete/regenerate features, not a test artifact to clean up.",
+  "rca_of_issue": "No bugs found; this was a verification-only run of 3 already-implemented changes."
+}

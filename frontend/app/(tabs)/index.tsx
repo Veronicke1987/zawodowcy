@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { FlatList, Pressable, RefreshControl, Text, View } from "react-native";
+import { FlatList, Modal, Pressable, RefreshControl, Text, View } from "react-native";
 import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -35,6 +35,8 @@ export default function Matches() {
   const router = useRouter();
   const [tab, setTab] = useState<"now" | "future">("now");
   const resetModes = useMemo(() => getResetModes(lang), [lang]);
+  const [deleteTarget, setDeleteTarget] = useState<Career | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const q = useQuery({
     queryKey: ["recommendations"],
@@ -45,6 +47,24 @@ export default function Matches() {
   const regenerate = async () => {
     await api("/recommendations/generate", { method: "POST" });
     queryClient.invalidateQueries({ queryKey: ["recommendations"] });
+  };
+
+  const deleteCareer = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api(`/recommendations/careers/${deleteTarget.id}`, { method: "DELETE" });
+      queryClient.setQueryData<Recommendations>(["recommendations"], (prev) =>
+        prev
+          ? { ...prev, now: (prev.now || []).filter((c) => c.id !== deleteTarget.id), future: (prev.future || []).filter((c) => c.id !== deleteTarget.id) }
+          : prev,
+      );
+    } catch {
+      // the list will resync on next fetch either way
+    } finally {
+      setDeleting(false);
+      setDeleteTarget(null);
+    }
   };
 
   const data = q.data;
@@ -121,16 +141,28 @@ export default function Matches() {
               <Txt variant="caption">{tab === "now" ? t.matches.subtitleNow : t.matches.subtitleFuture}</Txt>
             </View>
           }
-          renderItem={({ item, index }) => <CareerCard career={item} index={index} onPress={() => router.push(`/career/${item.id}`)} />}
+          renderItem={({ item, index }) => (
+            <CareerCard career={item} index={index} onPress={() => router.push(`/career/${item.id}`)} onDelete={() => setDeleteTarget(item)} />
+          )}
           ListEmptyComponent={<Txt>{t.matches.emptyCategory}</Txt>}
           ListFooterComponent={list.length ? <AiNote style={{ marginTop: spacing.sm }} /> : null}
         />
       )}
+      <Modal visible={!!deleteTarget} transparent animationType="fade" onRequestClose={() => setDeleteTarget(null)}>
+        <View style={styles.overlay}>
+          <View style={styles.dialog} testID="matches-delete-dialog">
+            <Txt variant="heading">{t.matches.deleteTitle}</Txt>
+            <Txt>{t.matches.deleteText(deleteTarget?.title)}</Txt>
+            <Button testID="matches-delete-confirm" title={t.matches.deleteConfirm} onPress={deleteCareer} loading={deleting} />
+            <Button testID="matches-delete-cancel" title={t.matches.deleteCancel} variant="ghost" onPress={() => setDeleteTarget(null)} />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
-function CareerCard({ career, index, onPress }: { career: Career; index: number; onPress: () => void }) {
+function CareerCard({ career, index, onPress, onDelete }: { career: Career; index: number; onPress: () => void; onDelete: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const { t } = useAuth();
@@ -146,6 +178,17 @@ function CareerCard({ career, index, onPress }: { career: Career; index: number;
             <Text style={styles.matchNum}>{career.match}%</Text>
             <Text style={styles.matchLbl}>{t.matches.matchSuffix}</Text>
           </View>
+          <Pressable
+            testID={`career-delete-${index}`}
+            onPress={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            hitSlop={8}
+            style={styles.deleteBtn}
+          >
+            <Ionicons name="trash-outline" size={18} color={colors.muted} />
+          </Pressable>
         </View>
         <Txt numberOfLines={3}>{career.summary}</Txt>
         <View style={styles.metaRow}>
@@ -228,4 +271,7 @@ const useStyles = makeStyles((c) => ({
   meta: { flexDirection: "row", alignItems: "center", gap: 4 },
   metaText: { fontFamily: fonts.semibold, fontSize: 13, color: c.onSurfaceSecondary },
   skeleton: { height: 150, borderRadius: radius.lg, backgroundColor: c.surfaceTertiary },
+  deleteBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center", marginRight: -spacing.sm, marginTop: -spacing.sm },
+  overlay: { flex: 1, backgroundColor: c.overlay, alignItems: "center", justifyContent: "center", padding: spacing.xl },
+  dialog: { width: "100%", backgroundColor: c.surface, borderRadius: radius.lg, padding: spacing.xl, gap: spacing.md },
 }));

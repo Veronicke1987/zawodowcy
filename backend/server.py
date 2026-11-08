@@ -1007,23 +1007,38 @@ def normalize_level(value: str) -> str:
     return LEVEL_WORDS.get((value or "").strip().lower(), "medium")
 
 
+RECS_HISTORY_LIMIT = 24  # how many previously-shown career titles we remember per user to stop
+# "Generate new" from converging on the same obvious picks for an unchanged profile. Capped (not
+# unbounded) and sent as bare titles only — a few short words each, negligible extra input tokens —
+# to keep this optimization basically free compared to the cost of a full regeneration call.
+
+
 async def run_recommendations(user_id: str, answers: dict, job_id: str, country: str = "PL", language: str = "pl"):
     # Compact JSON keys below (t/i/s/w/m/sa/d/r/g) exist purely to cut OUTPUT tokens: this call
     # repeats the same 9 fields across 10 career objects, so every character saved on field NAMES
     # (not content) is pure waste avoided x10. Mapped back to the real field names the app/DB use
     # right after parsing — no frontend or schema change needed.
     cfg = COUNTRY_CONFIG.get((country or "PL").upper()) or COUNTRY_CONFIG["PL"]
+    prior = await db.recommendations.find_one({"user_id": user_id}, {"_id": 0, "shown_titles": 1})
+    prev_titles = list(dict.fromkeys((prior or {}).get("shown_titles") or []))[-RECS_HISTORY_LIMIT:]
+    avoid_block = (
+        f"\nUżytkownik już widział te zawody we wcześniejszych propozycjach — tym razem NIE powtarzaj ich, "
+        f"zaproponuj INNE, realne zawody z rynku {cfg['name']}: {', '.join(prev_titles)}.\n"
+        if prev_titles else ""
+    )
     prompt = f"""Profil użytkownika (odpowiedzi z ankiety):
 {profile_text(answers)}
 Rynek pracy/kraj: {cfg['name']} (portale: {cfg['job_portals']}).
 
-Zaproponuj zawody dopasowane do tej osoby, REALNE dla rynku pracy w {cfg['name']} (nie dla innego kraju), w dwóch kategoriach:
-- "now": 4 zawody, które może wykonywać JUŻ TERAZ z obecnymi umiejętnościami (wymagania typowych ofert spełnia lub prawie spełnia),
-- "future": 4 zawody, które do niej pasują, ale wymagają zdobycia nowych umiejętności.
-Nie ograniczaj się do oczywistych zawodów — uwzględnij też mniej znane stanowiska realnie występujące w ogłoszeniach w {cfg['name']}
-(np. wdrożeniowiec systemów ERP, specjalista ds. wdrożeń, koordynator logistyki, analityk danych, specjalista ds. obsługi klienta B2B itp.).
+Zaproponuj zawody dopasowane do tej osoby, REALNE dla rynku pracy w {cfg['name']} (nie dla innego kraju) i ZGODNE z jej wykształceniem/doświadczeniem
+(w kategorii "now" NIGDY nie proponuj stanowiska wymagającego wyższego wykształcenia, certyfikatów ani doświadczenia kierowniczego, którego użytkownik nie ma — patrz pole "education"), w dwóch kategoriach:
+- "now": 4 zawody, które może wykonywać JUŻ TERAZ z obecnymi umiejętnościami i wykształceniem (wymagania typowych ofert spełnia lub prawie spełnia),
+- "future": 4 zawody, które do niej pasują, ale wymagają zdobycia nowych umiejętności/wykształcenia.
+W OBU kategoriach zachowaj równowagę: PRZYNAJMNIEJ POŁOWA propozycji w każdej kategorii to zawody powszechnie znane i masowo poszukiwane w {cfg['name']}
+(np. pracownik budowlany, sprzedawca, kucharz/kelner, kierowca, opiekun/opiekunka, magazynier, recepcjonista, ochroniarz, pracownik produkcji/sprzątający) —
+NIE same nietypowe/niszowe stanowiska. Reszta może być mniej oczywista, jeśli realnie pasuje do profilu.
 Weź pod uwagę to, czego użytkownik nie lubi, jego charakter i odporność zawodu na automatyzację przez AI.
-
+{avoid_block}
 {MODE_RULES.get(answers.get("reset_mode") or "search", MODE_RULES["search"])}
 
 Aby oszczędzić tokeny, użyj KRÓTKICH kluczy JSON dokładnie jak w przykładzie (bez pełnych nazw pól). Zwróć JSON:
@@ -1055,10 +1070,12 @@ UWAGA: pola "d" i "r" MUSZĄ być dokładnie jednym z angielskich słów: high, 
         # it right before this overwrite and merge it back in, so this $set never silently wipes it out.
         current = await db.recommendations.find_one({"user_id": user_id}, {"_id": 0, "now": 1})
         custom_now = [c for c in (current or {}).get("now", []) if c.get("custom")]
+        new_titles = [it.get("title") for it in data["now"] + data["future"] if it.get("title")]
+        shown_titles = list(dict.fromkeys(prev_titles + new_titles))[-RECS_HISTORY_LIMIT:]
         await db.recommendations.update_one(
             {"user_id": user_id, "job_id": job_id},
             {"$set": {"status": "ready", "mode": answers.get("reset_mode") or "search", "summary": data.get("summary", ""),
-                      "now": custom_now + data["now"], "future": data["future"], "updated_at": now_iso()}},
+                      "now": custom_now + data["now"], "future": data["future"], "shown_titles": shown_titles, "updated_at": now_iso()}},
         )
     except Exception as e:
         logger.exception("recommendations failed")
@@ -1087,6 +1104,20 @@ async def get_recommendations(user: UserDoc = Depends(current_user)):
     if doc and await expire_stale(db.recommendations, user.id, doc):
         doc["status"] = "error"
     return doc or {"status": "none"}
+
+
+@api.delete("/recommendations/careers/{career_id}")
+async def delete_recommended_career(career_id: str, user: UserDoc = Depends(current_user)):
+    """Removes a single career (AI-suggested or custom) from the user's current recommendations
+    list — e.g. they're just not interested in it. Does NOT trigger a regeneration or touch the
+    "shown_titles" history, so this title may still come back on a future "Generate new"."""
+    res = await db.recommendations.update_one(
+        {"user_id": user.id},
+        {"$pull": {"now": {"id": career_id}, "future": {"id": career_id}}},
+    )
+    if not res.modified_count:
+        raise HTTPException(404, "Nie znaleziono zawodu.")
+    return {"ok": True}
 
 
 async def expire_stale(coll, user_id: str, doc: dict) -> bool:

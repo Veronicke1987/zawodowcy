@@ -26,7 +26,7 @@ export function AiInfoModal() {
   }, []);
 
   const premium = !!user?.is_premium;
-  const limit = user?.roadmap_generations_limit ?? 25;
+  const limit = user?.roadmap_generations_limit ?? 35;
 
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>

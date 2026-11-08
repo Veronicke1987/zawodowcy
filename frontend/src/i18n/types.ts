@@ -158,6 +158,10 @@ export type Strings = {
     aiRiskHigh: string;
     aiRiskMedium: string;
     aiRiskLow: string;
+    deleteTitle: string;
+    deleteText: (title?: string) => string;
+    deleteConfirm: string;
+    deleteCancel: string;
   };
   career: {
     badgeNow: string;

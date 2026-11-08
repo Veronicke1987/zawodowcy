@@ -19,7 +19,7 @@ const PLANS = [
 
 const PERKS: { icon: IconName; title: string; text: string }[] = [
   { icon: "eye-off", title: "Bez reklam", text: "Żadnych reklam przy ścieżkach, planie nauki ani w trakcie korzystania." },
-  { icon: "trending-up", title: "25 nowych ścieżek miesięcznie", text: "Twórz do 25 nowych ścieżek kariery w miesiącu bez reklam — plan tygodniowy i dzienny do nich zawsze gratis, bez limitu." },
+  { icon: "trending-up", title: "35 nowych ścieżek miesięcznie", text: "Twórz do 35 nowych ścieżek kariery w miesiącu bez reklam — plan tygodniowy i dzienny do nich zawsze gratis, bez limitu." },
 ];
 
 export default function Premium() {
@@ -37,7 +37,7 @@ export default function Premium() {
   const [reasonDetail, setReasonDetail] = useState("");
   const [reasonError, setReasonError] = useState("");
   const active = !!user?.is_premium;
-  const limit = user?.roadmap_generations_limit ?? 25;
+  const limit = user?.roadmap_generations_limit ?? 35;
 
   const REASONS: { key: string; label: string }[] = [
     { key: "too_expensive", label: t.premium.reasonTooExpensive },

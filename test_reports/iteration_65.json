@@ -1,0 +1,36 @@
+{
+  "summary": "Tested the prompt-quality fix in run_recommendations() (server.py ~1016-1051) for users with basic education (education='Podstawowe') and minimal other preferences. Created a fresh TEST_ user, saved a minimal profile (education='Podstawowe', empty interests/current_job/certificates/languages, reset_mode='search'), called POST /api/recommendations/generate ONCE (per cost guidance), polled GET /api/recommendations until status='ready', and inspected the 8 returned career titles. Result: ALL 4 'now' titles (Magazynier, Pracownik produkcji, Sprzątający, Pomoc kuchenna) and ALL 4 'future' titles (Kierowca dostawczy, Opiekun osób starszych, Pracownik budowlany, Operator wózka widłowego) are common/widely-known occupations matching a basic-education profile - 8/8 (100%) common-job ratio, far exceeding the 'at least half' requirement, and zero 'now' titles matched higher-education/management keywords (no analityk, specjalista, kierownik, inżynier, etc.). This is a clear, verified improvement over the reported bug behavior (callcenter/kierownik sklepu/niche corporate roles). Regression checks also passed: GET /api/recommendations still returns shown_titles (capped <=24, present), GET /api/auth/me still reports recommendations_generations_limit=35 and recommendations_generations_used>=1 after the generate call. Code review of MODE_RULES dict (search/industry/life) confirms it was untouched by this change - only the shared prompt body gained the two new instructions (education-aware 'now' + 'at least half common jobs'), so reset_mode branching logic is not at regression risk.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_recs_education_prompt.py",
+    "/app/test_reports/pytest/pytest_recs_education.xml"
+  ],
+  "action_items": [
+    "No code fixes required. The prompt change for basic-education profiles is working as intended, verified with a single real Anthropic Claude Haiku generation.",
+    "Optional/low-cost suggestion for future iterations: since this is a qualitative LLM-output fix with inherent randomness, consider occasionally spot-checking with 1-2 more generations for other education levels (e.g. 'Zasadnicze zawodowe') or reset_mode='industry'/'life' in a future session to build more confidence, but not urgent given this run's clean result and real-money cost of each call."
+  ],
+  "critical_code_review_comments": [
+    "Prompt correctly references the 'education' answers field by name and instructs the LLM to never put higher-education/certificate/management-requiring roles in 'now' - matches the exact reported bug scenario.",
+    "The 'at least half common jobs' instruction includes a concrete whitelist example list in Polish (pracownik budowlany, sprzedawca, kucharz/kelner, kierowca, opiekun/opiekunka, magazynier, recepcjonista, ochroniarz, pracownik produkcji/sprzątający) which closely matches what the LLM actually returned in this test - good prompt engineering.",
+    "MODE_RULES (search/industry/life) dict and avoid_block (shown_titles anti-repeat) logic are untouched by this change, confirmed via code read - no regression risk expected there.",
+    "RECS_MONTHLY_GENERATIONS=35 constant and bump_recs_gen()/recs_gen_used() flow confirmed unchanged and correctly reflected via GET /api/auth/me."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (5/5 pytest cases passed, run with -n0 to keep module-scoped fixtures/single test user consistent; only 1 real LLM generate call used)"
+  },
+  "seed_data_creation": "Created one TEST_ user (TEST_basic_edu_<random>@test.pl) via /api/auth/register purely for this test run, with a minimal profile and one recommendations generation - left in DB as a test artifact (no account-deletion endpoint exists to clean it up); harmless, isolated, does not touch any seeded/production user data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The education-aware prompt fix (run_recommendations in server.py) is confirmed working well in this run: all 8 suggested careers for a basic-education/no-preferences profile were common, widely-known jobs with zero niche/higher-education roles in 'now'. Note the previous run's xdist parallel execution (default pytest.ini addopts use -n auto --dist loadscope) split module-scoped fixtures across workers for this test file, causing false 404s/wrong-user issues on unrelated classes in the same module - re-ran with `-n0` to fix. Future testers of this file/module should also pass -n0 if adding new classes that share module-scoped auth fixtures, to avoid spurious failures and to avoid triggering multiple costly LLM generate calls across workers.",
+  "rca_of_issue": "No bug found in this session - this was a verification run of a prompt/LLM-logic quality fix. The one real issue encountered during test authoring was a wrong endpoint guess (/api/account/me, which returns 404) corrected to the actual endpoint /api/auth/me; this was a test-script mistake, not a backend bug."
+}
