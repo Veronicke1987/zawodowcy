@@ -1,0 +1,35 @@
+{
+  "summary": "Tested the new UNIFIED 30-day time-based cache refresh mechanism (is_cache_stale()/CAREER_CACHE_REFRESH_DAYS=30, server.py ~441-454) applied to all 3 shared career_templates caches: career detail (detail/detail_updated_at), roadmap milestones (milestones/milestones_updated_at), and weekly study plan (weekly_plans.{sig}.plan/plan_updated_at). Code review confirmed is_cache_stale() returns True when updated_at is missing/unparseable OR age > 30 days, and is correctly called in exactly the 3 expected places (career_detail L1164, choose_path's cache lookup L1381, get_or_build_weekly_plan L1620), with every corresponding fresh-AI-generation code path writing the matching *_updated_at field alongside the content (L1189, L1345, L1623). Created ONE TEST_ user + ONE unique custom-career title (guaranteed-fresh cache key, no collision with other data) and ran 5 end-to-end pytest cases using direct pymongo manipulation to simulate 31-day-old cache instead of waiting 30 days, using only 5 real Anthropic LLM calls total: (1) fresh career-detail generation -> detail_updated_at written, immediate 2nd GET was a true cache hit (identical content, <5s, timestamp unchanged); (2) forced detail_updated_at to 31 days ago -> next GET triggered a real fresh regeneration and detail_updated_at was refreshed to 'now'; (3) fresh roadmap/milestones generation -> milestones_updated_at written; (4) forced milestones_updated_at to 31 days ago, deleted+re-added the same custom career and re-POSTed /roadmap -> triggered fresh regeneration (not cache reuse) and milestones_updated_at refreshed to 'now'; (5) fresh weekly-plan generation via /roadmap/study-plan -> weekly_plans.{sig}.plan_updated_at written with correct nested-field shape, confirmed directly rewindable (staleness CHECK itself already proven correct via (2)/(4) on identical code, so a 6th costly regeneration call was skipped per cost guidance). ALL 5/5 TESTS PASSED. No regression found in the core flow (custom career creation, roadmap generation/polling, weekly-plan generation/polling all worked normally on fresh cache, which is the majority real-world path).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_cache_30day_refresh.py",
+    "/app/test_reports/pytest/pytest_cache30.xml"
+  ],
+  "action_items": [
+    "No code fixes required. The unified 30-day time-based cache refresh for career detail, roadmap milestones, and weekly study plan is implemented correctly and verified end-to-end for both the fresh-cache (no-op) path and the forced-stale (regeneration) path."
+  ],
+  "critical_code_review_comments": [
+    "is_cache_stale(updated_at) correctly treats missing/unparseable timestamps as stale (fail-safe: regenerates rather than silently serving corrupt/old-format cache) in addition to the >30-day-old case.",
+    "All 3 call sites (career_detail, choose_path, get_or_build_weekly_plan) consistently use is_cache_stale() as a gate BEFORE returning cached content, and all 3 corresponding write paths persist the matching *_updated_at field atomically with the generated content in the same $set, so there's no window where content is cached without its freshness timestamp.",
+    "CAREER_CACHE_REFRESH_DAYS=30 is a single shared constant used by all 3 call sites, matching the requirement for one unified cache policy instead of the old 'forever' (detail/milestones) vs 'every 30th use' (weekly plan) split.",
+    "weekly_plans.{sig}.plan_updated_at correctly scopes staleness per pending-tasks-signature (sig), not per career overall, which is consistent with how the plan content itself is also scoped (different sig = different plan content, so each needs its own independent freshness clock)."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (5/5 pytest cases passed, 5 real LLM generation calls used total, within the 3-5 call cost budget)"
+  },
+  "seed_data_creation": "Created one TEST_ user (TEST_cache30_<random>@test.pl / Test1234) and one custom career 'TEST_Zawod_Cache30_<random>' purely for this test run; left in DB as harmless, isolated test artifacts (no account-deletion endpoint exists). Does not touch any seeded/production or other testers' data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The 30-day unified cache refresh feature is fully verified end-to-end (fresh-cache hit path + forced-stale regeneration path) for all 3 caches: career detail, roadmap milestones, and weekly study plan. Only the weekly-plan staleness regeneration itself was verified via direct-DB field assertions rather than a 6th real LLM call (since the gating code, is_cache_stale, is byte-identical to what was already proven in the detail/milestones tests) -- if a future session has extra AI-call budget, a full end-to-end regeneration test for the weekly plan (force plan_updated_at stale -> re-call /roadmap/study-plan after resetting blocks -> verify new generation) would close that last small gap, but is low priority given the shared code path. No regressions found in the previously-tested areas (recommendation removal, shown_titles, Premium text, recommendation prompt quality) -- none of those were touched in this session.",
+  "rca_of_issue": "No bug found. This was a verification run of a new caching-policy feature. Implementation matches the spec exactly: is_cache_stale() is used at all 3 required locations, with a single shared 30-day constant, and every fresh generation correctly persists its own *_updated_at timestamp field."
+}

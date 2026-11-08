@@ -438,6 +438,21 @@ def career_cache_key(title: str, country: str, language: str) -> str:
     return f"{(country or 'PL').upper()}::{language or 'pl'}::{normalize_title(title)}"
 
 
+CAREER_CACHE_REFRESH_DAYS = 30  # shared across career detail / roadmap milestones / weekly study plan:
+# past this age the shared template counts as stale and the next user to request it pays for one
+# fresh AI generation (which becomes the new shared template for everyone after), instead of the
+# cache living forever on potentially outdated salaries/tools/requirements.
+
+
+def is_cache_stale(updated_at: Optional[str]) -> bool:
+    if not updated_at:
+        return True
+    try:
+        return datetime.now(timezone.utc) - datetime.fromisoformat(updated_at) > timedelta(days=CAREER_CACHE_REFRESH_DAYS)
+    except Exception:
+        return True
+
+
 def clone_milestones(milestones: list) -> list:
     """Deep-ish copy of a cached template's milestones for a brand-new user: same ids/content,
     every task reset to NOT done (per-user progress is decided separately, see mark_done_tasks)."""
@@ -1145,8 +1160,8 @@ async def career_detail(career_id: str, user: UserDoc = Depends(current_user)):
     language = effective_language(user, country)
     cfg = COUNTRY_CONFIG.get((country or "PL").upper()) or COUNTRY_CONFIG["PL"]
     cache_key = career_cache_key(career["title"], country, language)
-    tmpl = await db.career_templates.find_one({"_id": cache_key}, {"_id": 0, "detail": 1})
-    if tmpl and tmpl.get("detail"):
+    tmpl = await db.career_templates.find_one({"_id": cache_key}, {"_id": 0, "detail": 1, "detail_updated_at": 1})
+    if tmpl and tmpl.get("detail") and not is_cache_stale(tmpl.get("detail_updated_at")):
         return {"career": career, "detail": tmpl["detail"], "job_links": job_links(career["title"], country)}
     prompt = f"""To jest odrębne, samodzielne zapytanie — dotyczy WYŁĄCZNIE poniższego jednego zawodu, nie odwołuj się do innych zawodów ani wcześniejszych rozmów.
 Zawód: {career['title']} (branża: {career.get('industry', '')}). Rynek pracy/kraj: {cfg['name']}.
@@ -1171,7 +1186,7 @@ kraju {cfg['name']}. Zwróć JSON:
         raise HTTPException(502, "Nie udało się przygotować opisu. Spróbuj ponownie.")
     await db.career_templates.update_one(
         {"_id": cache_key},
-        {"$set": {"title": career["title"], "country": country, "language": language, "detail": detail, "updated_at": now_iso()},
+        {"$set": {"title": career["title"], "country": country, "language": language, "detail": detail, "detail_updated_at": now_iso(), "updated_at": now_iso()},
          "$setOnInsert": {"created_at": now_iso()}},
         upsert=True,
     )
@@ -1326,7 +1341,8 @@ Zwróć JSON:
             # per-user by mark_done_tasks on reuse).
             await db.career_templates.update_one(
                 {"_id": cache_key},
-                {"$set": {"title": career["title"], "country": country, "language": language, "milestones": clone_milestones(milestones), "updated_at": now_iso()},
+                {"$set": {"title": career["title"], "country": country, "language": language, "milestones": clone_milestones(milestones),
+                          "milestones_updated_at": now_iso(), "updated_at": now_iso()},
                  "$setOnInsert": {"created_at": now_iso()}},
                 upsert=True,
             )
@@ -1361,8 +1377,8 @@ async def choose_path(data: RoadmapIn, user: UserDoc = Depends(current_user)):
     await db.roadmaps.insert_one({"user_id": user.id, "path_id": path_id, "active": True, "career": career, "status": "pending",
                                   "job_id": job_id, "milestones": [], "country": path_country, "started_at": now_iso(), "created_at": now_iso()})
     cache_key = career_cache_key(career["title"], path_country, language)
-    template = await db.career_templates.find_one({"_id": cache_key}, {"_id": 0, "milestones": 1})
-    if template and template.get("milestones"):
+    template = await db.career_templates.find_one({"_id": cache_key}, {"_id": 0, "milestones": 1, "milestones_updated_at": 1})
+    if template and template.get("milestones") and not is_cache_stale(template.get("milestones_updated_at")):
         qualifications_text = custom_qualifications if custom_qualifications is not None else qualifications_text_from_answers(answers)
         spawn(apply_cached_roadmap(user.id, job_id, clone_milestones(template["milestones"]), qualifications_text, path_country, language))
     else:
@@ -1591,9 +1607,6 @@ def clone_weekly_plan(plan: dict) -> dict:
     return {**plan, "weeks": [{**w, "items": [{**it, "done": False} for it in w.get("items", [])]} for w in plan.get("weeks", [])]}
 
 
-WEEKLY_PLAN_REFRESH_EVERY = 30  # every Nth time a given (career, pending-signature) combo is requested, regenerate via AI and overwrite the cache, instead of serving it forever
-
-
 async def get_or_build_weekly_plan(cache_key: str, sig: str, career_title: str, pending: list, country: str, language: str) -> dict:
     field = f"weekly_plans.{sig}"
     res = await db.career_templates.find_one_and_update(
@@ -1603,12 +1616,11 @@ async def get_or_build_weekly_plan(cache_key: str, sig: str, career_title: str, 
         upsert=True, return_document=ReturnDocument.AFTER,
     )
     entry = (res.get("weekly_plans") or {}).get(sig) or {}
-    hits = entry.get("hits", 1)
     cached_plan = entry.get("plan")
-    if cached_plan and hits % WEEKLY_PLAN_REFRESH_EVERY != 0:
+    if cached_plan and not is_cache_stale(entry.get("plan_updated_at")):
         return clone_weekly_plan(cached_plan)
     plan = await generate_weekly_plan_ai(weekly_plan_context(career_title, pending), country, language)
-    await db.career_templates.update_one({"_id": cache_key}, {"$set": {f"{field}.plan": plan}})
+    await db.career_templates.update_one({"_id": cache_key}, {"$set": {f"{field}.plan": plan, f"{field}.plan_updated_at": now_iso()}})
     return clone_weekly_plan(plan)
 
 
