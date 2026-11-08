@@ -1,0 +1,41 @@
+{
+  "summary": "5th iteration test of the 'Wygeneruj ponownie' (regenerate) recommendations-diversity fix in server.py (run_recommendations, ~L1051-1159). Code review CONFIRMED all 4 structural changes described by main agent are present: (a) regen_count is incremented atomically via db.recommendations.find_one_and_update(..., {'$inc': {'regen_count': 1}}, upsert=True, return_document=ReturnDocument.AFTER) BEFORE the prompt is built (L1062-1067); (b) build_prompt(strict: bool) generates two distinct avoid_block variants -- a soft request (strict=False) vs an imperative 'ZABRONIONE' wording (strict=True) (L1069-1084); (c) a 'for attempt in (0,1)' loop calls ask_llm, computes overlap = normalized(new_titles) & normalized(prev_titles), and only proceeds to attempt=1 (strict retry) if overlap >= 4 on attempt 0, else breaks (L1122-1144) -- matches the described hard safety net; (d) the angle-hint rotation index is REGEN_ANGLE_HINTS[regen_count % 4], i.e. keyed off the new monotonic regen_count counter, NOT len(shown_titles) as in the prior (failed) iteration (L1072). Ran the SAME profile used in all 4 prior iterations (education='Podstawowe', interests=['sport'], rest empty) with 3 real consecutive POST /api/recommendations/generate calls (serial, pytest -n 0) via the pre-existing test_recs_sport_basic_edu_regenerate_diversity.py. RESULT: clear, substantial improvement over all 4 prior attempts. Call1: ['sprzedawca w sklepie sportowym','pracownik obiektu sportowego','kelner','magazynier','ratownik wodny','pracownik siłowni','ochroniarz','trener przygotowania fizycznego dzieci']. Call2 (regen): 6/8 titles genuinely new, only 2/8 exact repeats ('pracownik obiektu sportowego', 'ratownik wodny'). Call3 (2nd regen): 8/8 titles genuinely new vs call1 AND 8/8 new vs call2 (zero exact overlap either direction). This meets the user's explicitly stated bar ('WYRAZNA WIEKSZOSC 6-8 z 8 powinna byc faktycznie NOWA') for all 3 call-pairs in this run, a first across all 5 fix iterations. MongoDB verified regen_count on the test user's recommendations doc = 3 after exactly 3 generate calls (monotonic, matches expectation). No regression: 0/24 titles across all 3 calls contained banned buzzwords (specjalista/koordynator/konsultant/analityk/kierownik/menedzer), and 0 future-category titles were long-study professions.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/recommendations/generate (run_recommendations)",
+        "issue": "No explicit log line for the overlap computation / retry decision (attempt==0 strict-retry branch), so it was not possible to directly confirm from backend logs whether the strict retry (attempt=1) actually fired on any of the 3 real calls in this session -- inferred only indirectly from final title sets. Recommend adding a logger.info(f\"regen overlap={len(overlap)} attempt={attempt} strict_retry={'yes' if ... else 'no'}\") for future verifiability without needing DB/network inspection."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_recs_sport_basic_edu_regenerate_diversity.py (reused, unmodified)",
+    "/app/test_reports/pytest/pytest_recs_regen_diversity_iter70.xml"
+  ],
+  "action_items": [
+    "This 5th fix iteration (regen_count-based atomic counter driving the angle-hint rotation + hard safety-net retry on overlap>=4) is a clear, measurable improvement over the 4 prior failed attempts and meets the user's stated bar (6-8/8 new titles per regenerate) for this test run. Recommend keeping this approach.",
+    "Only one full 3-call session was run this iteration (test budget constraint of ~6 total real AI calls for this session). Prior iterations (68/69) showed call-to-call variance across repeated runs (e.g. iteration_69 had one run with 4/8 overlap and another run with 8/8 overlap for the same profile), so a single successful run, while promising, is not yet statistical proof of consistency. Recommend one more confirmatory run (same profile, fresh TEST_ user) in a future iteration if/when budget allows, to rule out run-to-run variance before declaring this permanently resolved.",
+    "Minor: add a debug log line for the overlap/retry decision in run_recommendations so future verification doesn't require inferring retry behavior indirectly from title sets alone."
+  ],
+  "critical_code_review_comments": [
+    "regen_count via find_one_and_update($inc, upsert=True, return_document=AFTER) correctly decouples the angle-hint rotation from shown_titles growth -- directly fixes the feedback-loop root cause identified in iteration_69's RCA. Confirmed via code read and DB inspection (regen_count=3 after 3 calls).",
+    "build_prompt(strict) + for attempt in (0,1) safety net is a sound code-level guarantee layered on top of prompt-only steering, exactly as the main agent's action item from iteration_69 recommended ('post-generation check -- if returned titles overlap >=50%... retry once with stronger instruction'). Good alignment between prior testing feedback and this fix.",
+    "Minor nit: the loop variable name 'attempt' inside the safety-net retry block is reused for both the LLM-call index and (implicitly) the strict flag (attempt==1) -- readable but slightly dense; not a functional issue."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "Diversity assertions (business-level bar of 6-8/8 new per regenerate): 3/3 call-pairs met the bar (call1-vs-call2: 6/8 new, call1-vs-call3: 8/8 new, call2-vs-call3: 8/8 new). Pytest's own stricter 'zero exact overlap' assertion: 2/3 test functions passed, 1 failed on call1-vs-call2 (2 exact-title overlaps, which is still within the business-acceptable 6-8/8-new range) -- the test script's hard-fail-on-any-overlap threshold is stricter than the actual acceptance criterion given by the user. Non-diversity assertions (buzzword ban, long-study exclusion, profile save, status=ready, 4+4 item counts): 100% passed across all 3 real calls."
+  },
+  "seed_data_creation": "1 TEST_ user created by the test fixture (TEST_sport_regen_<random>@test.pl / Test12345!) with 3 real recommendation generations attached. Harmless isolated test artifact; no account-deletion endpoint exists to clean up.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "This is the 5TH iteration of the regenerate-diversity fix and the FIRST to pass the user's stated bar (6-8/8 new titles per regenerate) across all 3 call-pairs in a single test run. The underlying mechanism (regen_count-based atomic counter + overlap>=4 hard-retry safety net) is structurally sound per code review. If asked to retest this area again, run the SAME narrow profile (education=Podstawowe, interests=[sport]) with 3 serial generate calls and check: (1) exact-title overlap per pair should be <=2/8 (i.e. >=6/8 new), (2) regen_count in db.recommendations for the test user should equal the call count, (3) consider adding/checking a log line for the overlap/retry decision if deeper verification of the safety-net firing is needed.",
+  "rca_of_issue": "Root cause of all 4 prior failures (per iteration_69 RCA) was the angle-hint rotation index being derived from len(shown_titles), which doesn't advance when the model fails to add new titles -- a feedback loop. This 5th fix correctly decouples rotation from outcome by using a monotonically-incrementing regen_count field ($inc on every call regardless of result), plus adds a code-level hard safety net (one automatic strict retry if overlap>=4/8) rather than relying on prompt wording/temperature alone. This run's results are consistent with that RCA being correctly addressed."
+}

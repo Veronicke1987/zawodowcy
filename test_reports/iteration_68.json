@@ -1,0 +1,43 @@
+{
+  "summary": "Tested the THIRD iteration of the recommendations-prompt fix in run_recommendations() (server.py ~L1031-1075) covering 2 user-reported issues: (1) general buzzword ban (specjalista/koordynator/konsultant/analityk/kierownik/menedzer) for basic-education profiles, and (2) 'Wygeneruj ponownie' must return genuinely NEW careers, not paraphrases. Code review confirmed the prompt now bans the buzzword CATEGORY (not just exact examples) in both 'now'/'future', requires future-category jobs to be reachable via a short course and explicitly excludes long-study professions (ksiegowy, prawnik, pielegniarka, nauczyciel, lekarz) unless matching education already exists, and strengthens avoid_block wording to request 'genuinely different' careers. Ran a real end-to-end test with the EXACT reported profile (education='Podstawowe', interests=['sport'], rest empty) across 3 REAL /api/recommendations/generate calls (call #1 initial, call #2 and #3 = regenerate). RESULT: Issue (1) is FIXED -- 0/24 titles across all 3 calls contained any banned buzzword, and 0/12 'future' titles were long-study professions (future items were consistently ratownik wodny, instruktor fitness, opiekun osob starszych, kelner -- all short-course-appropriate). Issue (2) is STILL BROKEN and arguably WORSE than reported: all 3 calls returned the EXACT SAME 8 titles, byte-for-byte identical, in the same order every time ('pracownik silowni', 'sprzedawca w sklepie sportowym', 'pracownik obslugi obiektu sportowego', 'magazynier', 'ratownik wodny', 'instruktor fitness', 'opiekun osob starszych', 'kelner') -- not even reworded/paraphrased, literally identical strings, despite avoid_block being correctly populated with all 8 previously-shown titles before calls #2 and #3 (verified directly in MongoDB: shown_titles field has exactly these 8 entries, deduped, confirming the model saw the exclusion list but ignored it completely).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/recommendations/generate (regenerate flow)",
+        "issue": "Regenerate ('Wygeneruj ponownie') returns 100% IDENTICAL career titles on repeated calls for the same profile, not just similar/reworded ones. avoid_block correctly lists the 8 previously-shown titles (verified in DB), but the LLM call ignores this instruction entirely across 3 consecutive real calls. The 3rd prompt-wording iteration of this fix did not move the needle at all on this specific issue -- 0% diversity observed (expected: genuinely different careers each time).",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_recs_sport_basic_edu_regenerate_diversity.py",
+    "/app/test_reports/pytest/pytest_recs_regen_diversity.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Regenerate diversity is still not working at all (0/8 titles differ across 3 consecutive real calls for the same profile) -- prompt-wording alone has not been sufficient across 3 iterations. Recommend a structural fix instead of (or in addition to) more prompt wording: e.g. (a) explicitly set a non-zero/higher `temperature` param in ask_llm for this call (currently no temperature is passed, relying on provider default, and real output is nonetheless fully deterministic for this narrow profile -- worth verifying what temperature claude-haiku-5-5 actually uses via this SDK wrapper), (b) make avoid_block an explicit HARD constraint ('return format will be REJECTED if any of these exact strings appear') rather than a soft request buried mid-prompt, (c) consider a code-level filter: if any returned title exactly matches a shown_titles entry, retry the LLM call once or substitute from a small deterministic fallback pool before returning to the user, since prompt-only steering has failed 3 times in a row for this exact scenario.",
+    "Issue (1) general buzzword category ban IS confirmed fixed and should not need further work: 0/24 titles across 3 calls contained specjalista/koordynator/konsultant/analityk/kierownik/menedzer, and 0/12 future-category titles were long-study professions (ksiegowy/prawnik/pielegniarka/nauczyciel/lekarz)."
+  ],
+  "critical_code_review_comments": [
+    "avoid_block (server.py ~L1039-1043) is built correctly from the real shown_titles history and does get passed into the prompt with the right wording ('NAPRAWDE INNE zawody, nie przeformulowania tych samych rol') -- the DATA FLOW is correct, but the LLM is not following this instruction at all for this profile, observed 0% deviation across 3 real calls. This points to either the instruction being too weak/soft relative to competing instructions earlier in the prompt (the 'POLOWA propozycji to zawody powszechnie znane' balance rule may be so constraining for a narrow profile that there's effectively only one valid answer set the model can find), or a sampling/temperature issue in the LLM call itself.",
+    "ask_llm() (server.py ~L288-325) does not set an explicit `temperature` param for the Anthropic call -- only `max_tokens` and `thinking: disabled` are set. Given 3/3 identical outputs for a narrow-constraint prompt, it's worth confirming whether the SDK/model defaults to very low effective temperature, since that would compound the avoid_block-ignoring behavior.",
+    "The buzzword-category fix (issue 1) is well-scoped and verified working across all 24 titles observed in this session."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_recs_sport_basic_edu_regenerate_diversity.py (new test file)"
+  ],
+  "success_rate": {
+    "backend": "50% (2/4 pytest tests passed -- buzzword/long-study checks passed on all 3 calls; exact-title-overlap diversity assertions failed on calls 2 and 3 because all 8 titles were identical to call 1 each time)"
+  },
+  "seed_data_creation": "Created 1 TEST_ user (test_sport_regen_78167574@test.pl / Test12345!) purely for this session, with 3 real recommendation generations attached (harmless isolated test artifact, no account-deletion endpoint exists).",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Issue 1 (general buzzword category ban for basic-education profiles) is CONFIRMED FIXED -- no further testing needed unless the prompt changes again. Issue 2 (regenerate must return genuinely different careers) is CONFIRMED STILL BROKEN after 3 prompt-wording iterations -- this specific profile (education=Podstawowe, interests=[sport]) produces 100% identical output on every call, not just similar output. Suggest the main agent try a non-prompt-only approach (temperature tuning and/or a hard post-generation dedup+retry/fallback) rather than a 4th round of prompt wording tweaks, since 3 consecutive wording-only attempts have made zero measurable progress on this exact metric. If main agent fixes this, retest with the SAME narrow profile (it's the worst case / most likely to reproduce determinism) across at least 2 regenerate calls, asserting exact-title overlap is low, not just checking for paraphrase similarity.",
+  "rca_of_issue": "avoid_block is correctly populated with the real previously-shown titles (verified in MongoDB) and is included in the prompt with instructive wording, so the bug is NOT a data-wiring issue. The LLM itself, when faced with a highly constrained profile (minimal education + a single interest + a 'half must be common/well-known jobs' balance requirement), appears to converge on the same 'obviously correct' answer set regardless of the avoid_block instruction and regardless of default sampling temperature -- 3 consecutive real calls produced byte-identical results. The prompt's avoid_block is a soft textual request competing with several other constraints (buzzword ban, common-jobs balance, achievability limits) that collectively narrow the valid answer space so much that, in the model's view, there may be no other equally-good answer to give -- it needs either a harder/more explicit anti-duplication instruction, an explicit temperature increase, or code-level post-filtering/retry to guarantee diversity."
+}

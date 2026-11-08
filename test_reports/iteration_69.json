@@ -1,0 +1,45 @@
+{
+  "summary": "4th iteration test of the 'Wygeneruj ponownie' (regenerate) diversity fix in server.py. Code review CONFIRMED all 3 structural changes are present: (a) ask_llm() now accepts optional `temperature` param (L288, applied L297-303), (b) run_recommendations() calls ask_llm with temperature=1.0 (L1100), (c) REGEN_ANGLE_HINTS (4 Polish-language rotating hint strings, L1037-1048) are appended to avoid_block when prev_titles exists, selected via (len(prev_titles)//4) % 4 (L1061). Ran the SAME profile as all 3 prior iterations (education='Podstawowe', interests=['sport'], rest empty) with 3 real consecutive /api/recommendations/generate calls, TWICE (once under the default xdist config, once serially with -n 0 to reliably capture per-call title lists) = 6 total real generate calls. RESULT: the fix is NOT effective. Run A (xdist): call1 vs call2 shared 4/8 identical titles, call1 vs call3 shared 6/8 identical. Run B (serial): call1 vs call2 shared 8/8 identical titles (same exact set, only reordered), call1 vs call3 and call2 vs call3 both shared 7/8 identical titles (only 1 new title appeared: 'opiekun zwierzat w schronisku' replacing 'kelner'). Across both runs, NEVER did 'most' titles differ between consecutive calls as required -- the overwhelming majority remained byte-identical. No regression on the previously-fixed issue: 0/48 titles across all 6 calls contained banned buzzwords (specjalista/koordynator/konsultant/analityk/kierownik/menedzer), and 0 future-category titles were long-study professions.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/recommendations/generate (regenerate flow)",
+        "issue": "Regenerate still returns mostly/fully identical career titles across consecutive calls for the same unchanged profile, despite the 4th fix iteration adding temperature=1.0 and rotating REGEN_ANGLE_HINTS. Observed overlap: run A 4/8 and 6/8 identical; run B 8/8 (100%) and 7/8 identical across calls. The structural fix (temperature + angle hints) made only marginal/inconsistent improvement (occasionally 1-4 titles differ) and does not meet the 'majority of titles should be genuinely different' bar.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_recs_sport_basic_edu_regenerate_diversity.py (reused, unmodified)",
+    "/app/test_reports/pytest/pytest_recs_regen_diversity_iter69.xml",
+    "/app/test_reports/pytest/pytest_recs_regen_diversity_iter69_run2.xml"
+  ],
+  "action_items": [
+    "CRITICAL / UNRESOLVED after 4 iterations: regenerate diversity for narrow/unchanged profiles is still broken. Prompt-level steering (avoid_block + angle hints) and provider-level temperature=1.0 together are insufficient against the strong competing constraint 'POLOWA propozycji to zawody powszechnie znane' for a narrow profile (education=Podstawowe, interests=[sport]) -- the valid obvious answer set appears to be small enough that temperature sampling doesn't escape it.",
+    "Potential root cause in the NEW angle-rotation logic itself: angle = REGEN_ANGLE_HINTS[(len(prev_titles)//4) % 4] where prev_titles is the DEDUPED count of all previously shown titles. If the LLM returns the same 8 titles again (which it does, per this test), prev_titles count does NOT grow past the same multiple-of-4 bucket, so the SAME angle hint gets reused on the NEXT regenerate call too -- a feedback loop where the very failure the hint is meant to fix (no new titles) prevents the hint from ever rotating forward. Recommend keying the angle index off the regenerate ATTEMPT COUNT (e.g. a persisted per-user generation counter) instead of len(prev_titles), so it advances deterministically on every call regardless of whether the LLM introduced anything new.",
+    "Recommend a harder, code-level guarantee rather than a 5th prompt/sampling iteration: e.g. post-generation check -- if returned titles overlap >=50% with shown_titles (exact match), retry the LLM call once with an even stronger instruction or drop/replace the duplicate titles from a small deterministic fallback pool before returning to the user. Prompt+temperature-only has now failed to meet the bar across 4 consecutive iterations for this exact profile.",
+    "No regression confirmed: buzzword-category ban and long-study-profession exclusion in 'future' remain fully correct across all 6 real calls in this session (0 violations)."
+  ],
+  "critical_code_review_comments": [
+    "ask_llm() (server.py L288, L297-303) correctly adds the optional temperature param and only applies it when explicitly passed, preserving existing deterministic/cached behavior for all other callers -- good, scoped change.",
+    "run_recommendations() (L1100) correctly passes temperature=1.0 -- confirmed via code read.",
+    "REGEN_ANGLE_HINTS (L1037-1048) and its indexing (L1058-1066) are wired into avoid_block correctly when prev_titles is non-empty -- confirmed via code read -- BUT the indexing formula (len(prev_titles)//4) creates a feedback loop: when the LLM fails to introduce new unique titles (the exact bug being fixed), prev_titles length does not grow, so the same angle hint repeats on the next call, which likely reinforces convergence to the same answer set rather than breaking it. This is a plausible structural reason the fix underperforms.",
+    "The underlying tension noted in iteration_68 remains unaddressed: the prompt's own 'at least half of proposals must be common/well-known jobs' balance rule, combined with a narrow single-interest profile, may genuinely leave very few valid distinct 8-title answer sets for the model to choose from, regardless of temperature."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "Diversity-specific assertions: 0/4 pytest assertions passed across both runs (4 failures: call2-vs-call1 exact overlap, call1-vs-call3 exact overlap in both run A and run B). Non-diversity assertions (buzzword ban, long-study exclusion, profile save, status=ready, 4+4 item counts): 100% passed across all 6 real calls."
+  },
+  "seed_data_creation": "2 TEST_ users created by the test fixture (TEST_sport_regen_<random>@test.pl / Test12345!), one per run, each with 3 real recommendation generations attached. Harmless isolated test artifacts; no account-deletion endpoint exists to clean up.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "This is now the 4TH consecutive failed attempt to fix regenerate diversity for this exact profile (education=Podstawowe, interests=[sport]). Prompt wording (3x) and now temperature+angle-hints (1x) have all failed to produce 'majority different' output -- best case observed so far is 1-4 new titles out of 8 per call, worst case is 100% identical. Strongly recommend the main agent pivot to a code-level enforcement mechanism (retry-on-overlap or post-filter/replace) rather than a 5th prompt/sampling-only iteration, and separately fix the angle-hint index feedback-loop bug described above (key off attempt count, not len(prev_titles)). If retested, use the SAME narrow profile for comparability with all 4 prior iterations, and run with pytest -n 0 (serial) to get reliable per-call print output -- the default xdist config in pytest.ini can still assign tests to the same worker but is less reliable for capturing full stdout in one pass.",
+  "rca_of_issue": "Confirmed root cause candidates: (1) the prompt's 'at least half must be common/well-known jobs' balance constraint plus a narrow single-interest profile likely narrows the valid distinct-answer space so much that even temperature=1.0 sampling keeps landing on the same ~8 titles; (2) the NEW REGEN_ANGLE_HINTS rotation index is computed from len(prev_titles) (deduped shown-titles count), which does not advance when the model fails to introduce new titles -- exactly the failure mode being targeted -- so the same angle hint can repeat across consecutive calls instead of forcing a genuinely different angle each time, weakening the intended belt-and-braces effect."
+}

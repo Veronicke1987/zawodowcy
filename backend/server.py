@@ -285,7 +285,7 @@ async def public_user(u: UserDoc) -> dict:
 
 
 # ---------------------------------------------------------------- LLM helpers
-async def ask_llm(model: tuple, system: str, prompt: str, max_tokens: int = 4096) -> dict:
+async def ask_llm(model: tuple, system: str, prompt: str, max_tokens: int = 4096, temperature: Optional[float] = None) -> dict:
     # claude-haiku-5-5 (and other "extended thinking" capable Anthropic models) generate internal
     # reasoning tokens by default that are billed as output but never surfaced via TextDelta — this
     # was silently inflating output tokens ~5x (confirmed: 10 472 -> 2 049 output tokens for an
@@ -294,6 +294,13 @@ async def ask_llm(model: tuple, system: str, prompt: str, max_tokens: int = 4096
     # (real payloads measure well under 2k tokens; 4k leaves headroom without paying for runaway output —
     # callers with bigger payloads, e.g. the 8-week study plan, pass a higher max_tokens explicitly).
     params = {"max_tokens": max_tokens}
+    if temperature is not None:
+        # Left unset (provider default) everywhere except recommendations: those must genuinely
+        # vary on "Generate new" for the same unchanged profile, where the default was observed to
+        # come back 100% byte-identical across calls despite a different avoid-list each time —
+        # every other caller below shares one cached template across ALL users, so determinism
+        # there is a feature (everyone sees the same validated content), not a bug.
+        params["temperature"] = temperature
     messages = None
     if model[0] == "anthropic":
         params["thinking"] = {"type": "disabled"}
@@ -1027,6 +1034,19 @@ RECS_HISTORY_LIMIT = 24  # how many previously-shown career titles we remember p
 # unbounded) and sent as bare titles only — a few short words each, negligible extra input tokens —
 # to keep this optimization basically free compared to the cost of a full regeneration call.
 
+REGEN_ANGLE_HINTS = [
+    # Confirmed by testing: for a narrow/unchanged profile, the model returned 100% byte-identical
+    # output across 3 consecutive calls even with a correct, different avoid-list each time and
+    # temperature left at its default — asking "don't repeat X" alone wasn't enough leverage.
+    # These hints force a genuinely different occupational angle each regeneration (cycled
+    # server-side, not left to chance), on top of the explicit avoid-list and a non-default
+    # temperature (see run_recommendations) — belt-and-braces against the same convergence.
+    "Tym razem zwróć większą uwagę na zawody związane z pracą fizyczną/manualną i bezpośrednim kontaktem z klientem.",
+    "Tym razem zwróć większą uwagę na zawody związane z transportem, logistyką i pracą zmianową.",
+    "Tym razem zwróć większą uwagę na zawody związane z opieką nad ludźmi/zwierzętami oraz prostymi usługami lokalnymi.",
+    "Tym razem zwróć większą uwagę na zawody sezonowe/dorywcze i proste prace biurowo-administracyjne niewymagające specjalizacji.",
+]
+
 
 async def run_recommendations(user_id: str, answers: dict, job_id: str, country: str = "PL", language: str = "pl"):
     # Compact JSON keys below (t/i/s/w/m/sa/d/r/g) exist purely to cut OUTPUT tokens: this call
@@ -1034,28 +1054,50 @@ async def run_recommendations(user_id: str, answers: dict, job_id: str, country:
     # (not content) is pure waste avoided x10. Mapped back to the real field names the app/DB use
     # right after parsing — no frontend or schema change needed.
     cfg = COUNTRY_CONFIG.get((country or "PL").upper()) or COUNTRY_CONFIG["PL"]
-    prior = await db.recommendations.find_one({"user_id": user_id}, {"_id": 0, "shown_titles": 1})
-    prev_titles = list(dict.fromkeys((prior or {}).get("shown_titles") or []))[-RECS_HISTORY_LIMIT:]
-    avoid_block = (
-        f"\nUżytkownik już widział te zawody we wcześniejszych propozycjach — tym razem NIE powtarzaj ich, "
-        f"zaproponuj INNE, realne zawody z rynku {cfg['name']}: {', '.join(prev_titles)}.\n"
-        if prev_titles else ""
+    # "regen_count" is its own monotonic counter (not derived from shown_titles!) specifically so the
+    # angle-hint rotation below can't get stuck: if the model ever fails to add genuinely new titles,
+    # shown_titles stops growing, and deriving the rotation index from its length would then keep
+    # re-sending the SAME angle hint forever — a feedback loop that silently defeated the first
+    # version of this fix (confirmed by testing).
+    prior = await db.recommendations.find_one_and_update(
+        {"user_id": user_id}, {"$inc": {"regen_count": 1}}, upsert=True, return_document=ReturnDocument.AFTER,
+        projection={"_id": 0, "shown_titles": 1, "regen_count": 1},
     )
-    prompt = f"""Profil użytkownika (odpowiedzi z ankiety):
+    prev_titles = list(dict.fromkeys((prior or {}).get("shown_titles") or []))[-RECS_HISTORY_LIMIT:]
+    regen_count = (prior or {}).get("regen_count") or 1
+
+    def build_prompt(strict: bool) -> str:
+        avoid_block = ""
+        if prev_titles:
+            angle = REGEN_ANGLE_HINTS[regen_count % len(REGEN_ANGLE_HINTS)]
+            if strict:
+                avoid_block = (
+                    f"\nWAŻNY WYMÓG (nie sugestia): użytkownikowi pokazano już DOKŁADNIE te zawody — ZABRONIONE jest zaproponowanie "
+                    f"któregokolwiek z nich ponownie, nawet pod inną nazwą/sformułowaniem tej samej roli: {', '.join(prev_titles)}. "
+                    f"Wybierz zawody z WYRAŹNIE innej branży/kategorii niż powyższe. {angle}\n"
+                )
+            else:
+                avoid_block = (
+                    f"\nUżytkownik już widział te zawody (i bardzo podobne/synonimiczne stanowiska, nie tylko dokładnie te same nazwy) we wcześniejszych "
+                    f"propozycjach — tym razem zaproponuj NAPRAWDĘ INNE zawody, nie przeformułowania tych samych ról, realne dla rynku {cfg['name']}: "
+                    f"{', '.join(prev_titles)}. {angle}\n"
+                )
+        return f"""Profil użytkownika (odpowiedzi z ankiety):
 {profile_text(answers)}
 Rynek pracy/kraj: {cfg['name']} (portale: {cfg['job_portals']}).
 
-Zaproponuj zawody dopasowane do tej osoby, REALNE dla rynku pracy w {cfg['name']} (nie dla innego kraju) i ZGODNE z jej wykształceniem/doświadczeniem
-(w kategorii "now" NIGDY nie proponuj stanowiska wymagającego wyższego wykształcenia, certyfikatów ani doświadczenia kierowniczego, którego użytkownik nie ma — patrz pole "education"), w dwóch kategoriach:
+Zaproponuj zawody dopasowane do tej osoby, REALNE dla rynku pracy w {cfg['name']} (nie dla innego kraju) i ZGODNE z jej wykształceniem/doświadczeniem, w dwóch kategoriach:
 - "now": 4 zawody, które może wykonywać JUŻ TERAZ z obecnymi umiejętnościami i wykształceniem (wymagania typowych ofert spełnia lub prawie spełnia),
-- "future": 4 zawody osiągalne po JEDNYM konkretnym, niewielkim kroku (krótki kurs/certyfikat/kilka miesięcy doświadczenia) — NIE po pełnych studiach w przypadkowo dobranym kierunku.
+- "future": 4 zawody osiągalne po JEDNYM krótkim kursie/certyfikacie (dni-tygodnie, NIE miesiące/lata) — NIGDY zawody wymagające wieloletnich,
+formalnych studiów/uprawnień (np. księgowy, prawnik, pielęgniarka, nauczyciel, lekarz), chyba że użytkownik ma już wykształcenie w tym kierunku —
+krótki kurs NIE zamienia osoby z wykształceniem podstawowym w księgowego czy prawnika.
 
-KRYTYCZNE: NIE wymyślaj sztucznych nazw stanowisk łączących modne słowa (specjalista ds., konsultant ds., koordynator, analityk) z zainteresowaniem
-użytkownika, jeśli to nie jest REALNE, popularne stanowisko pasujące do jego wykształcenia/doświadczenia. Przykład błędu: dla podstawowego wykształcenia
-i zainteresowania "sport" ŹLE = "koordynator wydarzeń sportowych" (wymaga doświadczenia organizacyjnego), "konsultant ds. wdrożeń systemów w branży
-sportowej" (zmyślone, wymaga IT), "specjalista ds. rozliczeń w biurze rachunkowym" (nic wspólnego z zainteresowaniem, wymaga wykształcenia kierunkowego);
-DOBRZE = sprzedawca w sklepie sportowym, pracownik siłowni/klubu fitness, ratownik (po kursie WOPR), obsługa obiektu sportowego. Jeśli zainteresowanie
-nie ma żadnego realnego, osiągalnego odpowiednika zawodowego dla tej osoby — zaproponuj zwykły, dobrze dopasowany zawód bez naciągania na nie.
+KRYTYCZNE, w OBU kategoriach: jeśli wykształcenie użytkownika to podstawowe/zasadnicze zawodowe/puste LUB nie ma on doświadczenia biurowego/kierowniczego
+— NIGDY nie używaj w nazwie stanowiska słów: "specjalista", "koordynator", "konsultant", "analityk", "kierownik", "menedżer" — te słowa niemal zawsze
+oznaczają wymagane wykształcenie/doświadczenie, którego ta osoba nie ma. NIE wymyślaj też sztucznych nazw łączących te słowa z zainteresowaniami
+użytkownika (np. ŹLE dla podstawowego wykształcenia: "koordynator wydarzeń sportowych", "specjalista ds. rozliczeń w biurze rachunkowym"; DOBRZE:
+sprzedawca w sklepie sportowym, pracownik siłowni, ratownik po kursie WOPR, obsługa obiektu sportowego). Jeśli zainteresowanie nie ma realnego,
+prostego zawodowego odpowiednika — zaproponuj zwykły, dobrze dopasowany zawód bez naciągania na to zainteresowanie.
 
 W OBU kategoriach zachowaj równowagę: PRZYNAJMNIEJ POŁOWA propozycji w każdej kategorii to zawody powszechnie znane i masowo poszukiwane w {cfg['name']}
 (np. pracownik budowlany, sprzedawca, kucharz/kelner, kierowca, opiekun/opiekunka, magazynier, recepcjonista, ochroniarz, pracownik produkcji/sprzątający) —
@@ -1072,28 +1114,41 @@ Aby oszczędzić tokeny, użyj KRÓTKICH kluczy JSON dokładnie jak w przykładz
           "g": ["czego jeszcze brakuje, max 2 krótkie frazy"]}}],
  "future": [ ...ten sam format... ]}}
 UWAGA: pola "d" i "r" MUSZĄ być dokładnie jednym z angielskich słów: high, medium albo low (nigdy po polsku/innym języku) — to wewnętrzny kod, tłumaczony na język interfejsu osobno przez aplikację."""
+
+    key_map = {"t": "title", "i": "industry", "s": "summary", "w": "why", "m": "match",
+               "sa": "salary", "d": "demand", "r": "ai_risk", "g": "missing_skills"}
     try:
-        data = await ask_llm(ANALYSIS_MODEL, system_message(country, language), prompt)
-        key_map = {"t": "title", "i": "industry", "s": "summary", "w": "why", "m": "match",
-                   "sa": "salary", "d": "demand", "r": "ai_risk", "g": "missing_skills"}
-        for cat in ("now", "future"):
-            items = data.get(cat) or []
-            expanded = []
-            for it in items:
-                full = {key_map.get(k, k): v for k, v in it.items()}
-                full["id"] = uuid.uuid4().hex[:12]
-                full["category"] = cat
-                full["country"] = country
-                full["demand"] = normalize_level(full.get("demand"))
-                full["ai_risk"] = normalize_level(full.get("ai_risk"))
-                expanded.append(full)
-            data[cat] = expanded
+        data = None
+        for attempt in (0, 1):
+            data = await ask_llm(ANALYSIS_MODEL, system_message(country, language), build_prompt(strict=attempt == 1), temperature=1.0)
+            for cat in ("now", "future"):
+                items = data.get(cat) or []
+                expanded = []
+                for it in items:
+                    full = {key_map.get(k, k): v for k, v in it.items()}
+                    full["id"] = uuid.uuid4().hex[:12]
+                    full["category"] = cat
+                    full["country"] = country
+                    full["demand"] = normalize_level(full.get("demand"))
+                    full["ai_risk"] = normalize_level(full.get("ai_risk"))
+                    expanded.append(full)
+                data[cat] = expanded
+            new_titles = [it.get("title") for it in data["now"] + data["future"] if it.get("title")]
+            # Hard safety net on top of the prompt instructions above: if the model still returned
+            # mostly the SAME careers as last time (confirmed by testing to happen even with a
+            # correct avoid-list + temperature=1.0 + rotating angle hint), pay for exactly ONE retry
+            # with a much more forceful, imperative version of the avoid-list instead of silently
+            # shipping near-duplicate "new" suggestions to the user.
+            overlap = {normalize_title(t) for t in new_titles} & {normalize_title(t) for t in prev_titles}
+            if attempt == 0 and prev_titles and len(overlap) >= 4:
+                logger.info(f"recommendations regen overlap too high ({len(overlap)}/{len(new_titles)}) for user {user_id}, retrying with strict avoid_block")
+                continue
+            break
         # This job can take up to a minute. If the user added a custom career (POST /careers/custom)
         # while it was still running, that career was $push-ed into "now" in the meantime — re-read
         # it right before this overwrite and merge it back in, so this $set never silently wipes it out.
         current = await db.recommendations.find_one({"user_id": user_id}, {"_id": 0, "now": 1})
         custom_now = [c for c in (current or {}).get("now", []) if c.get("custom")]
-        new_titles = [it.get("title") for it in data["now"] + data["future"] if it.get("title")]
         shown_titles = list(dict.fromkeys(prev_titles + new_titles))[-RECS_HISTORY_LIMIT:]
         await db.recommendations.update_one(
             {"user_id": user_id, "job_id": job_id},

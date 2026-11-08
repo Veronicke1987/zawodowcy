@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="4" time="30.166" timestamp="2026-11-08T08:48:22.089556+00:00" hostname="agent-env-874124cc-9a8a-444f-a4d1-315708e44edb"><testcase classname="tests.test_recs_sport_basic_edu_regenerate_diversity.TestSportBasicEducationRegenerateDiversity" name="test_save_profile" time="0.740" /><testcase classname="tests.test_recs_sport_basic_edu_regenerate_diversity.TestSportBasicEducationRegenerateDiversity" name="test_call_1_no_buzzwords_no_longstudy" time="10.507" /><testcase classname="tests.test_recs_sport_basic_edu_regenerate_diversity.TestSportBasicEducationRegenerateDiversity" name="test_call_2_regenerate_is_genuinely_different" time="9.424"><failure message="AssertionError: Regenerate returned EXACT same title(s) as previous call: {'ratownik wodny', 'instruktor fitness', 'pracownik obsługi obiektu sportowego', 'sprzedawca w sklepie sportowym', 'magazynier', 'kelner', 'pracownik siłowni', 'opiekun osób starszych'}&#10;assert not {'instruktor fitness', 'kelner', 'magazynier', 'opiekun osób starszych', 'pracownik obsługi obiektu sportowego', 'pracownik siłowni', ...}">self = &lt;test_recs_sport_basic_edu_regenerate_diversity.TestSportBasicEducationRegenerateDiversity object at 0xff52af7cf350&gt;
+auth_client = &lt;requests.sessions.Session object at 0xff52af7e0690&gt;
+
+    def test_call_2_regenerate_is_genuinely_different(self, auth_client):
+        time.sleep(1)
+        doc, now_items, future_items = generate_and_wait(auth_client)
+        all_items = now_items + future_items
+        titles = [it.get("title", "") for it in all_items]
+        print(f"CALL #2 (regenerate) titles: {titles}")
+    
+        buzz_hits = [t for t in titles if any(b in t.lower() for b in BANNED_BUZZWORDS)]
+        future_titles = [it.get("title", "") for it in future_items]
+        longstudy_hits = [t for t in future_titles if any(k in t.lower() for k in LONG_STUDY_PROFESSIONS)]
+        assert not buzz_hits, f"Found banned buzzword(s) in titles: {buzz_hits}"
+        assert not longstudy_hits, f"Found long-study profession(s) in 'future': {longstudy_hits}"
+    
+        call1_cores = {core_role(t) for t in self.call1_titles}
+        call2_cores = {core_role(t) for t in titles}
+        overlap = call1_cores &amp; call2_cores
+        exact_title_overlap = set(self.call1_titles) &amp; set(titles)
+    
+        print(f"Call1 core roles: {call1_cores}")
+        print(f"Call2 core roles: {call2_cores}")
+        print(f"Core-role overlap (same role, possibly reworded): {overlap}")
+        print(f"Exact title overlap: {exact_title_overlap}")
+    
+        self.__class__.call2_titles = titles
+        self.__class__.call2_core_overlap = overlap
+        self.__class__.call2_exact_overlap = exact_title_overlap
+    
+        # Soft/diagnostic: report overlap ratio rather than hard-failing on heuristic
+        # core-role matching (imperfect dictionary), but DO hard-fail on exact
+        # duplicate titles across calls, which is an unambiguous non-diversity bug.
+&gt;       assert not exact_title_overlap, (
+            f"Regenerate returned EXACT same title(s) as previous call: {exact_title_overlap}"
+        )
+E       AssertionError: Regenerate returned EXACT same title(s) as previous call: {'ratownik wodny', 'instruktor fitness', 'pracownik obsługi obiektu sportowego', 'sprzedawca w sklepie sportowym', 'magazynier', 'kelner', 'pracownik siłowni', 'opiekun osób starszych'}
+E       assert not {'instruktor fitness', 'kelner', 'magazynier', 'opiekun osób starszych', 'pracownik obsługi obiektu sportowego', 'pracownik siłowni', ...}
+
+tests/test_recs_sport_basic_edu_regenerate_diversity.py:177: AssertionError</failure></testcase><testcase classname="tests.test_recs_sport_basic_edu_regenerate_diversity.TestSportBasicEducationRegenerateDiversity" name="test_call_3_second_regenerate_diversity_summary" time="9.409"><failure message="AssertionError: Exact duplicate titles call1 vs call3: {'ratownik wodny', 'instruktor fitness', 'pracownik obsługi obiektu sportowego', 'sprzedawca w sklepie sportowym', 'magazynier', 'kelner', 'pracownik siłowni', 'opiekun osób starszych'}&#10;assert not {'instruktor fitness', 'kelner', 'magazynier', 'opiekun osób starszych', 'pracownik obsługi obiektu sportowego', 'pracownik siłowni', ...}">self = &lt;test_recs_sport_basic_edu_regenerate_diversity.TestSportBasicEducationRegenerateDiversity object at 0xff52af7cfa50&gt;
+auth_client = &lt;requests.sessions.Session object at 0xff52af7e0690&gt;
+
+    def test_call_3_second_regenerate_diversity_summary(self, auth_client):
+        time.sleep(1)
+        doc, now_items, future_items = generate_and_wait(auth_client)
+        all_items = now_items + future_items
+        titles = [it.get("title", "") for it in all_items]
+        print(f"CALL #3 (2nd regenerate) titles: {titles}")
+    
+        buzz_hits = [t for t in titles if any(b in t.lower() for b in BANNED_BUZZWORDS)]
+        future_titles = [it.get("title", "") for it in future_items]
+        longstudy_hits = [t for t in future_titles if any(k in t.lower() for k in LONG_STUDY_PROFESSIONS)]
+        assert not buzz_hits, f"Found banned buzzword(s) in titles: {buzz_hits}"
+        assert not longstudy_hits, f"Found long-study profession(s) in 'future': {longstudy_hits}"
+    
+        exact_overlap_1_3 = set(self.call1_titles) &amp; set(titles)
+        exact_overlap_2_3 = set(self.call2_titles) &amp; set(titles)
+        print(f"Exact title overlap call1 vs call3: {exact_overlap_1_3}")
+        print(f"Exact title overlap call2 vs call3: {exact_overlap_2_3}")
+    
+        all_three = [set(self.call1_titles), set(self.call2_titles), set(titles)]
+        print("=== DIVERSITY SUMMARY ACROSS 3 REAL GENERATE CALLS ===")
+        print(f"Call1: {self.call1_titles}")
+        print(f"Call2: {self.call2_titles}")
+        print(f"Call3: {titles}")
+        print(f"Call1 core-role vs Call2 core-role overlap: {self.call2_core_overlap}")
+    
+&gt;       assert not exact_overlap_1_3, f"Exact duplicate titles call1 vs call3: {exact_overlap_1_3}"
+E       AssertionError: Exact duplicate titles call1 vs call3: {'ratownik wodny', 'instruktor fitness', 'pracownik obsługi obiektu sportowego', 'sprzedawca w sklepie sportowym', 'magazynier', 'kelner', 'pracownik siłowni', 'opiekun osób starszych'}
+E       assert not {'instruktor fitness', 'kelner', 'magazynier', 'opiekun osób starszych', 'pracownik obsługi obiektu sportowego', 'pracownik siłowni', ...}
+
+tests/test_recs_sport_basic_edu_regenerate_diversity.py:206: AssertionError</failure></testcase></testsuite></testsuites>
