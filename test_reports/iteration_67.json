@@ -1,0 +1,37 @@
+{
+  "summary": "Verified the SECOND iteration of the run_recommendations() prompt fix (server.py ~L1031-1074) which adds a KRYTYCZNE instruction forbidding invented hybrid job titles (specjalista ds./konsultant ds./koordynator/analityk + user interest) and clarifies 'future' = reachable after ONE small step. Code review confirms the exact reported bad examples (koordynator wydarzeń sportowych, konsultant ds. wdrożeń systemów w branży sportowej, specjalista ds. rozliczeń w biurze rachunkowym) are spelled out verbatim as forbidden patterns, with good examples (sprzedawca w sklepie sportowym, pracownik siłowni/klubu fitness, ratownik WOPR, obsługa obiektu sportowego) also given verbatim. Reproduced the EXACT reported bug scenario end-to-end: created TEST_ users, saved profile answers={education:'Podstawowe', interests:['sport'], rest empty/default}, called POST /api/recommendations/generate, polled GET /api/recommendations until ready, and inspected all 8 returned titles (now+future) for hybrid-title/higher-edu-unrelated patterns. Result across 3 real generate runs (test harness required 2 re-runs to fix an xdist loadscope class-splitting issue in the test file itself, not app code -- all 3 runs used the SAME fixed prompt code): ALL 24 titles across the 3 runs were realistic, common, education-appropriate jobs matching the 'DOBRZE' pattern exactly (sprzedawca w sklepie sportowym, pracownik recepcji siłowni/klubu fitness, pracownik obsługi obiektu sportowego, magazynier, kelner, kierowca, ratownik wodny, instruktor fitness, trener personalny, opiekun w ośrodku sportowym dla dzieci). ZERO occurrences of 'koordynator', 'konsultant ds.', 'specjalista ds.', 'analityk', or anything requiring higher education/unrelated corporate roles (no accounting-office role appeared in any run). The bug described by the user is FIXED. Regression smoke-checked: shown_titles history field present and growing correctly, recommendations_generations_used counter increments, /auth/me monthly limit unaffected -- no code-level regression found in the mechanisms not re-tested in depth (shown_titles anti-repeat, now/future balance, 30-day cache), consistent with iteration_66's prior deep verification of the cache mechanism.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_recs_sport_basic_edu_hybrid_titles.py",
+    "/app/test_reports/pytest/pytest_recs_sport.xml"
+  ],
+  "action_items": [
+    "No code fixes required for the prompt itself -- the new KRYTYCZNE anti-hybrid-title instruction resolves the exact reported bug (sport interest + Podstawowe education no longer produces invented buzzword+interest job titles) across 3 independent real-LLM generations, 0/24 titles violated the rule.",
+    "Cost note: 3 real /recommendations/generate calls were used (vs. the suggested budget of 2) because the first 2 pytest runs needed a test-file fix for an xdist loadscope class-splitting issue (unrelated to app code, see below) before the regression assertions could run against the SAME user/data as the generate call. All 3 runs independently confirm the fix works, so this is not a concern."
+  ],
+  "critical_code_review_comments": [
+    "Prompt change is well-targeted: it embeds the user's exact reported bad examples verbatim as negative examples and verbatim good examples as positive ones, which is the most reliable way to steer an LLM away from a previously-observed specific failure mode, and the test results confirm it worked across all 3 real calls.",
+    "'future' category guidance now explicitly says 'after JEDNYM konkretnym, niewielkim kroku... NIE po pełnych studiach w przypadkowo dobranym kierunku', matching the requirement; observed future-category picks (ratownik wodny, instruktor fitness, trener personalny) are indeed reachable via a short course/certificate, not a degree.",
+    "shown_titles, now/future balance, and the 30-day cache refresh mechanism (server.py elsewhere) were not touched by this prompt-only change and are already deeply verified in a prior iteration (iteration_66); this session only smoke-checked their presence, per the agent-to-agent note that deep re-testing wasn't needed."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_recs_sport_basic_edu_hybrid_titles.py (new test file)"
+  ],
+  "success_rate": {
+    "backend": "100% (4/4 pytest assertions passed on the final run; 3 real LLM generate calls total across 3 runs, all 24 resulting career titles clean of the reported hybrid-title bug pattern)"
+  },
+  "seed_data_creation": "Created 4 TEST_ users (test_sport_basic_edu_*@test.pl / Test12345!, emails lowercased by the app) purely for this test session -- 3 of them have a real 'ready' recommendations doc attached (used to verify the bug fix), left in DB as harmless isolated test artifacts (no account-deletion endpoint exists). Does not touch any seeded/production or other testers' data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The reported bug (sport interest + Podstawowe education producing invented hybrid corporate job titles) is CONFIRMED FIXED across 3 independent real-LLM test runs -- 0 hybrid/unrelated-higher-edu titles out of 24 generated titles. Test file /app/backend/tests/test_recs_sport_basic_edu_hybrid_titles.py keeps the generate-call test and its regression follow-ups in the SAME pytest class (important: pytest.ini pins '-n 2 --dist loadscope' PER CLASS, so splitting regression checks into a separate class in the same module sends them to a different xdist worker with a freshly-created TEST_ user that never called /generate -- this caused 2 spurious failures before the fix; keep future tests for this flow in one class to avoid repeating that mistake). No other areas were touched this session.",
+  "rca_of_issue": "Original bug: prompt lacked an explicit negative-example instruction, so the LLM pattern-matched buzzwords (specjalista ds., konsultant ds., koordynator) onto the user's lone interest ('sport') to manufacture a plausible-sounding but unreachable/irrelevant job title for a Podstawowe-education user, and sometimes defaulted to an unrelated corporate role (biuro rachunkowe) when it ran out of 'sport'-adjacent buzzword ideas. Fix: added a KRYTYCZNE block with the exact verbatim bad/good examples from the bug report, which reliably steered the model (verified 3/3 real calls, 24/24 titles) toward realistic, achievable, interest-matching jobs instead."
+}

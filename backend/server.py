@@ -1048,10 +1048,18 @@ Rynek pracy/kraj: {cfg['name']} (portale: {cfg['job_portals']}).
 Zaproponuj zawody dopasowane do tej osoby, REALNE dla rynku pracy w {cfg['name']} (nie dla innego kraju) i ZGODNE z jej wykształceniem/doświadczeniem
 (w kategorii "now" NIGDY nie proponuj stanowiska wymagającego wyższego wykształcenia, certyfikatów ani doświadczenia kierowniczego, którego użytkownik nie ma — patrz pole "education"), w dwóch kategoriach:
 - "now": 4 zawody, które może wykonywać JUŻ TERAZ z obecnymi umiejętnościami i wykształceniem (wymagania typowych ofert spełnia lub prawie spełnia),
-- "future": 4 zawody, które do niej pasują, ale wymagają zdobycia nowych umiejętności/wykształcenia.
+- "future": 4 zawody osiągalne po JEDNYM konkretnym, niewielkim kroku (krótki kurs/certyfikat/kilka miesięcy doświadczenia) — NIE po pełnych studiach w przypadkowo dobranym kierunku.
+
+KRYTYCZNE: NIE wymyślaj sztucznych nazw stanowisk łączących modne słowa (specjalista ds., konsultant ds., koordynator, analityk) z zainteresowaniem
+użytkownika, jeśli to nie jest REALNE, popularne stanowisko pasujące do jego wykształcenia/doświadczenia. Przykład błędu: dla podstawowego wykształcenia
+i zainteresowania "sport" ŹLE = "koordynator wydarzeń sportowych" (wymaga doświadczenia organizacyjnego), "konsultant ds. wdrożeń systemów w branży
+sportowej" (zmyślone, wymaga IT), "specjalista ds. rozliczeń w biurze rachunkowym" (nic wspólnego z zainteresowaniem, wymaga wykształcenia kierunkowego);
+DOBRZE = sprzedawca w sklepie sportowym, pracownik siłowni/klubu fitness, ratownik (po kursie WOPR), obsługa obiektu sportowego. Jeśli zainteresowanie
+nie ma żadnego realnego, osiągalnego odpowiednika zawodowego dla tej osoby — zaproponuj zwykły, dobrze dopasowany zawód bez naciągania na nie.
+
 W OBU kategoriach zachowaj równowagę: PRZYNAJMNIEJ POŁOWA propozycji w każdej kategorii to zawody powszechnie znane i masowo poszukiwane w {cfg['name']}
 (np. pracownik budowlany, sprzedawca, kucharz/kelner, kierowca, opiekun/opiekunka, magazynier, recepcjonista, ochroniarz, pracownik produkcji/sprzątający) —
-NIE same nietypowe/niszowe stanowiska. Reszta może być mniej oczywista, jeśli realnie pasuje do profilu.
+NIE same nietypowe/niszowe stanowiska. Reszta może być mniej oczywista, jeśli REALNIE i bez naciągania pasuje do profilu.
 Weź pod uwagę to, czego użytkownik nie lubi, jego charakter i odporność zawodu na automatyzację przez AI.
 {avoid_block}
 {MODE_RULES.get(answers.get("reset_mode") or "search", MODE_RULES["search"])}
