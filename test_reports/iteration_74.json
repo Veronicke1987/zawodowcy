@@ -1,0 +1,41 @@
+{
+  "summary": "Tested the 8th-iteration deterministic blocklist safety net for the high-qualification recommendation mismatch bug (opiekun/kierowca etc. shown to high-education users). Code review confirmed is_high_qual, LOW_SKILL_BLOCKLIST, and the attempt-0/attempt-1 qual_violation retry loop are present in server.py (lines ~1073-1171). Ran POST /api/recommendations/generate 4 times in a row (real AI) against a fresh TEST_ user with the exact high-qual profile from the bug report (Licencjat/inżynier, Informatyka w biznesie/Zarządzanie, SAP, 'Wdrożeniowiec T2 Płatnika', IT/HR, Excel/ERP). Inspected the cumulative shown_titles (24 titles across all 4 calls, stored in Mongo) plus the final now/future arrays — ZERO blocklist violations in any title across all 4 regenerations. Backend logs confirm the retry mechanism fired exactly once ('recommendations regen retry ... qual_violation=True') during the 4 calls, and after that single retry the output was clean — proving the safety net activates when needed and successfully corrects the model's output.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/recommendations/generate (run_recommendations)",
+        "issue": "On the 4th of 4 consecutive regenerations, the AI returned a 'now' list with 4 valid items but an EMPTY 'future' list ([]). The current retry condition only checks overlap>=4 or qual_violation (LOW_SKILL_BLOCKLIST hit) — it does NOT check for missing/empty category arrays, so this malformed response was accepted and persisted as the final 'ready' result shown to the user. Not a regression of the bug under test (no blocklist words involved), but a separate data-completeness gap in the same retry loop."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_high_qual_recommendations.py",
+    "/app/test_reports/pytest/pytest_highqual_1.xml"
+  ],
+  "action_items": [
+    "MAIN FINDING (positive): the hard code-level LOW_SKILL_BLOCKLIST + is_high_qual + retry mechanism works as designed — verified via logs (one real qual_violation=True trigger observed) and via DB inspection (0/24 shown titles across 4 regenerations matched any blocklist keyword: opiekun, kierowca, magazynier, sprzątacz, kelner, kucharz, ochroniarz, kasjer, sprzedawca, recepcjonist, asystent, etc.). This appears to resolve the reported regression for this specific profile; recommend closing this ticket's safety-net requirement.",
+    "MINOR (optional): consider extending the attempt-0/attempt-1 retry condition to also retry when len(data.get('now'))==0 or len(data.get('future'))==0 (or < expected count), so malformed/incomplete AI JSON doesn't silently reach the user with a half-empty category, independent of the blocklist check.",
+    "Note: a test file touch under /app/backend/tests/ during this session triggered a Metro/uvicorn --reload restart mid-session (WatchFiles detected changes) since the backend watches its own tests/ directory; this did not affect data integrity but caused one in-flight background generation task from an unrelated earlier run to be abandoned mid-request. Not a functional bug, just an observation about the reload-on-save dev setup."
+  ],
+  "critical_code_review_comments": [
+    "run_recommendations() correctly derives is_high_qual strictly from answers['education'] membership in {'Licencjat / inżynier','Magister','Doktorat'} and only applies the hard blocklist guard + extra strict prompt text when strict (attempt==1) and is_high_qual — matches the described design.",
+    "LOW_SKILL_BLOCKLIST check (qual_violation) is applied to ALL new titles (now+future) using simple substring match in lowercased title — good coverage, no regex gaps spotted for the keywords in the list.",
+    "The retry is capped at exactly one extra attempt (for loop over (0,1)) — bounded cost, no infinite-retry risk.",
+    "Good: logging line 'recommendations regen retry ... qual_violation=...' gives clear observability confirmed useful during this test.",
+    "Gap (see minor issue above): no validation that both 'now' and 'future' are non-empty/well-formed before accepting the AI response as final."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "pytest test failed on 1/1 assertion (empty 'future' on call 4, unrelated to the bug under test); the actual blocklist safety-net behavior under test passed 4/4 (0 violations across 24 unique shown titles)"},
+  "seed_data_creation": "Created one TEST_ prefixed user (TEST_highqual_<random>@test.pl) via /api/auth/register for this test; left in DB per test-data rules (no destructive cleanup performed).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "This is iteration 8 of the same bug (low-skill titles shown to high-qual users). This run found the deterministic code-side blocklist safety net WORKING (0 violations in 24 titles across 4 real regenerations, retry logged once and corrected output). If the user reports this bug a 3rd time after this fix ships, it likely means either (a) their actual profile answers don't exactly match education in {'Licencjat / inżynier','Magister','Doktorat'} (e.g. a different wording/typo so is_high_qual evaluates False), or (b) a different, non-blocklisted but still poorly-matched title gets through — recommend asking the user for their EXACT saved profile answers (GET /api/profile) if it recurs, to check the is_high_qual string match first before assuming the blocklist logic itself failed.",
+  "rca_of_issue": "Not applicable — this was a verification test for a fix already implemented, not a new bug investigation. The one minor issue found (empty 'future' array on 1 of 4 calls) is a separate data-completeness gap: the retry condition doesn't check category array length/emptiness, only overlap and blocklist violations."
+}

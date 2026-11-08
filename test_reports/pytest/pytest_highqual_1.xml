@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="43.164" timestamp="2026-11-08T13:57:38.229704+00:00" hostname="agent-env-874124cc-9a8a-444f-a4d1-315708e44edb"><testcase classname="tests.test_high_qual_recommendations.TestHighQualBlocklist" name="test_four_consecutive_regenerations_no_blocklist_violation" time="42.828"><failure message="AssertionError: call 4: 'future' category empty&#10;assert 0 &gt; 0&#10; +  where 0 = len([])">tests/test_high_qual_recommendations.py:93: in test_four_consecutive_regenerations_no_blocklist_violation
+    assert len(future_items) &gt; 0, f"call {i+1}: 'future' category empty"
+E   AssertionError: call 4: 'future' category empty
+E   assert 0 &gt; 0
+E    +  where 0 = len([])</failure></testcase></testsuite></testsuites>

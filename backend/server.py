@@ -1065,6 +1065,16 @@ async def run_recommendations(user_id: str, answers: dict, job_id: str, country:
     )
     prev_titles = list(dict.fromkeys((prior or {}).get("shown_titles") or []))[-RECS_HISTORY_LIMIT:]
     regen_count = (prior or {}).get("regen_count") or 1
+    # Hard, deterministic backstop on top of the prompt instructions: 3 prompt-only iterations
+    # (education-aware wording, keyword ban, qualification branching) still occasionally let through
+    # generic caregiving/manual-labor titles for clearly high-qualification profiles (confirmed by a
+    # real user report after the model's own instruction-following fell short). Code-side detection
+    # doesn't rely on the model remembering a rule — it just checks the output.
+    is_high_qual = answers.get("education") in {"Licencjat / inżynier", "Magister", "Doktorat"}
+    LOW_SKILL_BLOCKLIST = ["opiekun", "kierowca", "magazynier", "sprzątacz", "sprzątając", "kelner", "kucharz",
+                           "ochroniarz", "kasjer", "sprzedawca", "recepcjonist", "pracownik produkcji", "asystent",
+                           "wsparcie biurowe", "wsparcie administracyjne", "wprowadzanie danych", "pracownik magazynu",
+                           "pracownik fizyczny", "pracownik ochrony"]
 
     def build_prompt(strict: bool) -> str:
         avoid_block = ""
@@ -1082,6 +1092,13 @@ async def run_recommendations(user_id: str, answers: dict, job_id: str, country:
                     f"propozycjach — tym razem zaproponuj NAPRAWDĘ INNE zawody, nie przeformułowania tych samych ról, realne dla rynku {cfg['name']}: "
                     f"{', '.join(prev_titles)}. {angle}\n"
                 )
+        if strict and is_high_qual:
+            avoid_block += (
+                f"\nWAŻNY WYMÓG: ta osoba ma wysokie kwalifikacje (wykształcenie: {answers.get('education')}) — ZABRONIONE jest proponowanie "
+                f"prostych zawodów fizycznych/opiekuńczych/asystenckich (np. opiekun osób/zwierząt, kierowca, magazynier, sprzątanie, kelner, "
+                f"kasjer, ochroniarz, asystent/wsparcie biurowe) w JAKIEJKOLWIEK kategorii. Trzymaj się poziomu specjalisty/konsultanta/"
+                f"wdrożeniowca zgodnie z jej profilem, tak jak opisano niżej.\n"
+            )
         return f"""Profil użytkownika (odpowiedzi z ankiety):
 {profile_text(answers)}
 Rynek pracy/kraj: {cfg['name']} (portale: {cfg['job_portals']}).
@@ -1146,8 +1163,13 @@ UWAGA: pola "d" i "r" MUSZĄ być dokładnie jednym z angielskich słów: high, 
             # with a much more forceful, imperative version of the avoid-list instead of silently
             # shipping near-duplicate "new" suggestions to the user.
             overlap = {normalize_title(t) for t in new_titles} & {normalize_title(t) for t in prev_titles}
-            if attempt == 0 and prev_titles and len(overlap) >= 4:
-                logger.info(f"recommendations regen overlap too high ({len(overlap)}/{len(new_titles)}) for user {user_id}, retrying with strict avoid_block")
+            qual_violation = is_high_qual and any(any(b in t.lower() for b in LOW_SKILL_BLOCKLIST) for t in new_titles)
+            empty_category = not data.get("now") or not data.get("future")
+            if attempt == 0 and ((prev_titles and len(overlap) >= 4) or qual_violation or empty_category):
+                logger.info(
+                    f"recommendations regen retry for user {user_id}: overlap={len(overlap)}/{len(new_titles)} "
+                    f"qual_violation={qual_violation} empty_category={empty_category}"
+                )
                 continue
             break
         # This job can take up to a minute. If the user added a custom career (POST /careers/custom)
