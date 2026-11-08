@@ -1087,16 +1087,19 @@ async def run_recommendations(user_id: str, answers: dict, job_id: str, country:
 Rynek pracy/kraj: {cfg['name']} (portale: {cfg['job_portals']}).
 
 Zaproponuj zawody dopasowane do tej osoby, REALNE dla rynku pracy w {cfg['name']} (nie dla innego kraju) i ZGODNE z jej wykształceniem/doświadczeniem, w dwóch kategoriach:
-- "now": 4 zawody, które może wykonywać JUŻ TERAZ z obecnymi umiejętnościami, wykształceniem i doświadczeniem zawodowym (wymagania typowych ofert spełnia lub prawie spełnia),
-- "future": 4 zawody osiągalne po jednym realnym kroku dalej.
+- "now": 4 zawody NA TYM SAMYM poziomie co jej OBECNE/OSTATNIE stanowisko i specjalizacja (jeśli podała konkretne stanowisko/certyfikat/kierunek
+studiów — to one są najważniejszym sygnałem, WAŻNIEJSZYM niż pojedyncze ogólne narzędzie jak Excel) — praktycznie bez dodatkowej nauki,
+- "future": 4 zawody JEDEN SZCZEBEL WYŻEJ niż "now" (awans / większa odpowiedzialność / szersza specjalizacja w tym samym lub pokrewnym obszarze),
+NIE zupełnie inny, niepowiązany zawód.
 
 NAJPIERW oceń poziom kwalifikacji tej osoby na podstawie CAŁEGO profilu (wykształcenie, studia podyplomowe/certyfikaty jak SAP/ERP, obecne/poprzednie
-stanowisko, branża, narzędzia jak Excel/ERP) — to ten poziom decyduje o doborze zawodów, NIE sztywna lista przykładów poniżej:
+stanowisko, branża) — to ten poziom decyduje o doborze zawodów, NIE sztywna lista przykładów poniżej:
 
 - Osoba z wyższym wykształceniem, studiami podyplomowymi/certyfikatami zawodowymi LUB konkretnym doświadczeniem biurowym/wdrożeniowym/IT/HR/SAP/ERP
-itp. → DOPASUJ zawody na tym samym lub wyższym poziomie (specjalista, analityk, konsultant, kierownik projektu, wdrożeniowiec itp. są jak najbardziej
-WSKAZANE) — w "future" krok dalej oznacza awans/specjalizację/pokrewną branżę, NIE cofnięcie się do prostej pracy fizycznej poniżej jej kwalifikacji
-(np. kierowca, magazynier, opiekun zwierząt są ZŁYM dopasowaniem dla inżyniera z certyfikatem SAP, nawet jeśli to zawody "bezpieczne" i popularne).
+itp. → "now" na poziomie specjalisty/konsultanta/wdrożeniowca zgodnie z jej realnym stanowiskiem (te słowa są jak najbardziej WSKAZANE), "future" =
+awans (starszy specjalista, kierownik zespołu/projektu, szerszy zakres obowiązków) w TEJ SAMEJ lub pokrewnej specjalizacji. NIGDY nie proponuj w
+żadnej kategorii prostej pracy fizycznej/asystenckiej poniżej jej kwalifikacji (np. kierowca, magazynier, opiekun zwierząt, asystent/wsparcie biurowe
+to ZŁE dopasowanie dla kogoś z wyższym wykształceniem i certyfikatem SAP, nawet jeśli to zawody "bezpieczne" i popularne).
 - Osoba z wykształceniem podstawowym/zasadniczym zawodowym/pustym I bez specjalistycznego doświadczenia → NIGDY nie używaj słów "specjalista",
 "koordynator", "konsultant", "analityk", "kierownik", "menedżer" (wymagają kwalifikacji, których nie ma), "future" = krótki kurs/certyfikat
 (dni-tygodnie, NIE wieloletnie studia jak księgowy/prawnik/pielęgniarka/nauczyciel/lekarz), i w OBU kategoriach PRZYNAJMNIEJ POŁOWA propozycji to

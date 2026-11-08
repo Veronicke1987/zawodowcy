@@ -1,0 +1,32 @@
+{
+  "summary": "Backend-only CONSISTENCY/VARIANCE test (iteration 7) for POST /api/recommendations/generate (run_recommendations, server.py ~L1051-1170) using the exact high-qualification profile the user reported getting poor results on in production (Studia inżynierskie + Informatyka w biznesie/Zarządzanie + SAP podyplomówka + current_job='Wdrożeniowiec T2 Płatnika' + industry='IT i HR'). Created /app/backend/tests/test_iter73_recs_consistency.py which calls /api/recommendations/generate 3 TIMES with 3 FRESH TEST_ users (same profile each time, real AI calls, polling for 'ready'). All 3 independent runs: ZERO assistant/back-office/wsparcie-dokumentów/physical-labor titles; 'now' consistently at wdrożeniowiec/specjalista/konsultant SAP/ERP/HR level (4/4, 4/4, 4/4 matched expected level-hints); 'future' consistently one level up (starszy konsultant/kierownik projektu/architekt/lider zespołu) in the same SAP/ERP/HR domain (3/4, 4/4, 4/4 matched). No run reproduced the user's reported regression ('wsparcie wprowadzania dokumentów', 'asystent back office').",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/recommendations/generate", "issue": "Run 1 'future' category included 'Analityk biznesowy ERP' which reads as same-level (not an explicit promotion) rather than clearly 'one level up' - minor category-boundary blur, not a regression to low-skill/assistant roles. Given temperature=1.0 is intentional (prompt diversity), 3/3 clean runs is reassuring but does not mathematically guarantee zero variance on future calls; recommend periodic spot-checks rather than treating this as fully closed."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter73_recs_consistency.py", "/app/test_reports/pytest/pytest_iter73.xml"],
+  "action_items": [
+    "No code fix required this iteration - all 3 independent real-AI runs of the exact reported regression profile stayed at/above qualification level with zero assistant/back-office/physical-labor titles.",
+    "Since temperature=1.0 is a deliberate choice for suggestion diversity, consider periodically re-running this consistency test (or increasing sample size when budget allows) rather than treating 3/3 as permanent proof - variance-based regressions are inherently probabilistic and could still resurface.",
+    "Minor: consider tightening the 'future' instruction so 'one level up' titles don't occasionally read as same-level rewordings of 'now' titles (e.g. 'Analityk biznesowy ERP' appeared ambiguous in run 1)."
+  ],
+  "critical_code_review_comments": [
+    "run_recommendations() prompt (L1089-1109) correctly anchors 'now' to the user's CURRENT/LAST position+specialization (not just a tool like Excel) and defines 'future' as exactly one level up in the same/related specialization, with explicit prohibition of asystent/wsparcie biurowe for high-qualification profiles - this matches the problem statement's requested fix and held up across 3 independent real-AI calls.",
+    "temperature=1.0 (L1129) remains the single largest residual risk for this class of bug: it is good for suggestion variety but is exactly the mechanism the user's production report attributes the regression to. The current retry-on-high-overlap safety net (L1143-1151) only triggers on repeated-title overlap for the SAME user's regen history, not on quality/level drift for a fresh generate call, so it would not have caught a one-off bad draw like the user's report."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (1/1 pytest test, 3/3 real-AI sub-runs clean)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "3 TEST_ users created via /api/auth/register (TEST_recs_iter73_consistency_run1/2/3_*) - not cleaned up, harmless test data prefixed TEST_, each with 1 profile + 1 recommendations doc.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "test_iter73_recs_consistency.py is reusable: it spins up 3 fresh users with the exact reported high-qual profile and runs generate 3x, printing all 24 titles (8 per run) plus a bad-fit/level-match summary. Since this is an inherently probabilistic bug (temperature=1.0), if the user reports the regression again, re-run this file (3 more real AI calls) rather than assuming it's fully fixed from this one 3/3 clean run.",
+  "rca_of_issue": "Original regression: the 'half must be common/physical jobs' rule from iteration 5 applied unconditionally, which iteration 6 fixed by qualification-branching the prompt. The user's subsequent production report of the SAME bug on the SAME (now-fixed) prompt is most plausibly explained by temperature=1.0 sampling variance on a single draw, not a logic bug - in this run, 3/3 independent real-AI draws for the identical profile all stayed correctly leveled, which is consistent with 'mostly correct, occasionally still can draw a bad sample' rather than a reintroduced deterministic bug. No code change made; informational/monitoring action item only."
+}
